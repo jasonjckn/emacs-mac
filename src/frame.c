@@ -29,7 +29,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 
 #include "lisp.h"
 
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
 #include TERM_HEADER
 #endif /* HAVE_WINDOW_SYSTEM */
 
@@ -42,7 +42,7 @@ along with GNU Emacs.  If not, see <https://www.gnu.org/licenses/>. */
 #include "termchar.h"
 #include "termhooks.h"
 #include "window.h"
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
 #include "fontset.h"
 #endif
 #include "cm.h"
@@ -84,7 +84,7 @@ enum
 int frame_default_tool_bar_height;
 #endif
 
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
 static void gui_report_frame_params (struct frame *, Lisp_Object *);
 #endif
 
@@ -119,7 +119,7 @@ decode_any_frame (register Lisp_Object frame)
   return XFRAME (frame);
 }
 
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
 bool
 display_available (void)
 {
@@ -132,7 +132,7 @@ decode_window_system_frame (Lisp_Object frame)
 {
   struct frame *f = decode_live_frame (frame);
   check_window_system (f);
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   return f;
 #endif
 }
@@ -140,7 +140,7 @@ decode_window_system_frame (Lisp_Object frame)
 void
 check_window_system (struct frame *f)
 {
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   if (window_system_available (f))
     return;
 #endif
@@ -398,7 +398,7 @@ frame_windows_min_size (Lisp_Object frame, Lisp_Object horizontal,
   return retval;
 }
 
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
 /**
  * keep_ratio:
  *
@@ -879,7 +879,7 @@ adjust_frame_size (struct frame *f, int new_text_width,
       if ((FRAME_TERMCAP_P (f) && !pretend) || FRAME_MSDOS_P (f))
         FrameCols (FRAME_TTY (f)) = new_text_cols;
 
-#if defined(HAVE_WINDOW_SYSTEM)
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
       if (WINDOWP (f->tab_bar_window))
         {
           XWINDOW (f->tab_bar_window)->pixel_width = new_inner_width;
@@ -957,7 +957,7 @@ adjust_frame_size (struct frame *f, int new_text_width,
 
   unblock_input ();
 
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   {
     /* Adjust size of F's child frames.  */
     Lisp_Object frames, frame1;
@@ -1019,7 +1019,7 @@ make_frame (bool mini_p)
   f->line_height = 1;  /* !FRAME_WINDOW_P value.  */
   f->new_width = -1;
   f->new_height = -1;
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   f->vertical_scroll_bar_type = vertical_scroll_bar_none;
   f->horizontal_scroll_bars = false;
   f->want_fullscreen = FULLSCREEN_NONE;
@@ -1131,7 +1131,7 @@ make_frame (bool mini_p)
   return f;
 }
 
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
 /* Make a frame using a separate minibuffer window on another frame.
    MINI_WINDOW is the minibuffer window to use.  nil means use the
    default (the global minibuffer).  */
@@ -1268,7 +1268,7 @@ make_initial_frame (void)
   FRAME_FOREGROUND_PIXEL (f) = FACE_TTY_DEFAULT_FG_COLOR;
   FRAME_BACKGROUND_PIXEL (f) = FACE_TTY_DEFAULT_BG_COLOR;
 
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   f->vertical_scroll_bar_type = vertical_scroll_bar_none;
   f->horizontal_scroll_bars = false;
 #endif
@@ -1333,7 +1333,7 @@ make_terminal_frame (struct terminal *terminal)
   FRAME_BACKGROUND_PIXEL (f) = FACE_TTY_DEFAULT_BG_COLOR;
 #endif /* not MSDOS */
 
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   f->vertical_scroll_bar_type = vertical_scroll_bar_none;
   f->horizontal_scroll_bars = false;
 #endif
@@ -1627,7 +1627,7 @@ do_switch_frame (Lisp_Object frame, int for_deletion,
      (select-window (frame-root-window (make-frame))) doesn't end up
      with your typing being interpreted in the new frame instead of
      the one you're actually typing in.  */
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   if (!frame_ancestor_p (f, sf))
 #endif
     internal_last_event_frame = Qnil;
@@ -1700,7 +1700,7 @@ DEFUN ("frame-list", Fframe_list, Sframe_list,
 The return value does not include any tooltip frame.  */)
 (void)
 {
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   Lisp_Object list = Qnil, tail, frame;
 
   FOR_EACH_FRAME (tail, frame)
@@ -1743,7 +1743,7 @@ parent window is the window-system's root window) or an embedded window
     return Qnil;
 }
 
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
 bool
 frame_ancestor_p (struct frame *af, struct frame *df)
 {
@@ -1770,7 +1770,7 @@ ANCESTOR and DESCENDANT must be live frames and default to the selected
 frame.  */)
 (Lisp_Object ancestor, Lisp_Object descendant)
 {
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   struct frame *af = decode_live_frame (ancestor);
   struct frame *df = decode_live_frame (descendant);
 
@@ -2253,7 +2253,7 @@ delete_frame (Lisp_Object frame, Lisp_Object force)
      memory. */
   free_glyphs (f);
 
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   /* Give chance to each font driver to free a frame specific data. */
   font_update_drivers (f, Qnil);
 #endif
@@ -2502,7 +2502,7 @@ The functions are run with one argument, the frame to be deleted.  */)
   return delete_frame (frame, !NILP (force) ? Qt : Qnil);
 }
 
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
 /**
  * frame_internal_border_part:
  *
@@ -2696,7 +2696,7 @@ Y.  */)
   return retval;
 }
 
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
 
 /* On frame F, convert character coordinates X and Y to pixel
    coordinates *PIX_X and *PIX_Y.  */
@@ -2757,7 +2757,7 @@ before calling this function on it, like this.
   /* I think this should be done with a hook.  */
   if (FRAME_WINDOW_P (XFRAME (frame)))
     {
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
       /* Warping the mouse will cause enternotify and focus events. */
       frame_set_mouse_position (XFRAME (frame), xval, yval);
 #endif /* HAVE_WINDOW_SYSTEM */
@@ -2803,7 +2803,7 @@ before calling this function on it, like this.
   if (FRAME_WINDOW_P (XFRAME (frame)))
     {
       /* Warping the mouse will cause enternotify and focus events. */
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
       frame_set_mouse_pixel_position (XFRAME (frame), xval, yval);
 #endif /* HAVE_WINDOW_SYSTEM */
     }
@@ -2910,7 +2910,7 @@ for how to proceed.  */)
 (Lisp_Object frame)
 {
   struct frame *f = decode_live_frame (frame);
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   Lisp_Object parent = f->parent_frame;
 
   if (!NILP (parent))
@@ -3077,7 +3077,7 @@ means do not activate FRAME.
 If there is no window system support, this function does nothing.  */)
 (Lisp_Object frame, Lisp_Object noactivate)
 {
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   struct frame *f = decode_window_system_frame (frame);
   if (f && FRAME_TERMINAL (f)->focus_frame_hook)
     FRAME_TERMINAL (f)->focus_frame_hook (f, !NILP (noactivate));
@@ -3426,7 +3426,7 @@ If FRAME is omitted or nil, return information on the currently selected frame. 
   store_in_alist (&alist, Qburied_buffer_list, f->buried_buffer_list);
 
   /* I think this should be done with a hook.  */
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   if (FRAME_WINDOW_P (f))
     gui_report_frame_params (f, &alist);
   else
@@ -3461,7 +3461,7 @@ If FRAME is nil, describe the currently selected frame.  */)
       /* Avoid consing in frequent cases.  */
       if (EQ (parameter, Qname))
         value = f->name;
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
       /* These are used by vertical motion commands.  */
       else if (EQ (parameter, Qvertical_scroll_bars))
         value
@@ -3541,7 +3541,7 @@ list, but are otherwise ignored.  */)
   Lisp_Object prop, val;
 
   /* I think this should be done with a hook.  */
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   if (FRAME_WINDOW_P (f))
     gui_set_frame_parameters (f, alist);
   else
@@ -3597,7 +3597,7 @@ If FRAME is omitted or nil, the selected frame is used.
 For a terminal frame, the value is always 1.  */)
 (Lisp_Object frame)
 {
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   struct frame *f = decode_any_frame (frame);
 
   if (FRAME_WINDOW_P (f))
@@ -3615,7 +3615,7 @@ On a graphical screen, the width is the standard width of the default font.
 For a terminal screen, the value is always 1.  */)
 (Lisp_Object frame)
 {
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   struct frame *f = decode_any_frame (frame);
 
   if (FRAME_WINDOW_P (f))
@@ -3637,7 +3637,7 @@ frame, see `frame-text-width' instead.  */)
 {
   struct frame *f = decode_any_frame (frame);
 
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   if (FRAME_WINDOW_P (f))
     return make_fixnum (FRAME_PIXEL_WIDTH (f));
   else
@@ -3666,7 +3666,7 @@ to `frame-height'). */)
 {
   struct frame *f = decode_any_frame (frame);
 
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   if (FRAME_WINDOW_P (f))
     return make_fixnum (FRAME_PIXEL_HEIGHT (f));
   else
@@ -3946,7 +3946,7 @@ bottom edge of FRAME's display.  */)
 
   if (FRAME_WINDOW_P (f))
     {
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
       if (FRAME_TERMINAL (f)->set_frame_offset_hook)
         FRAME_TERMINAL (f)->set_frame_offset_hook (f, xval, yval, 1);
 #else
@@ -4087,7 +4087,7 @@ static const struct frame_parm_table frame_parms[] = {
 #endif
 };
 
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
 
 /* Enumeration type for switch in frame_float.  */
 enum frame_float_type
@@ -6170,7 +6170,7 @@ This function is for internal use only.  */)
                         Multimonitor data
  ***********************************************************************/
 
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
 
 #if (defined USE_GTK || defined HAVE_PGTK || defined HAVE_NS \
      || defined HAVE_XINERAMA || defined HAVE_XRANDR)
@@ -6437,7 +6437,7 @@ syms_of_frame (void)
       }
   }
 
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   DEFVAR_LISP ("x-resource-name", Vx_resource_name,
     doc: /* The name Emacs uses to look up X resources.
 `x-get-resource' uses this as the first component of the instance name
@@ -6505,7 +6505,7 @@ ones.
 
   DEFVAR_LISP ("default-frame-scroll-bars", Vdefault_frame_scroll_bars,
 	       doc: /* Default position of vertical scroll bars on this window-system.  */);
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
 #if defined HAVE_NTGUI || defined HAVE_MACGUI \
   || defined NS_IMPL_COCOA                    \
   || (defined USE_GTK && defined USE_TOOLKIT_SCROLL_BARS)
@@ -6604,7 +6604,7 @@ See the command `tool-bar-mode' for a description of this minor mode.
 Setting this variable directly does not take effect;
 either customize it (see the info node `Easy Customization')
 or call the function `tool-bar-mode'.  */);
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   Vtool_bar_mode = Qt;
 #else
   Vtool_bar_mode = Qnil;
@@ -6727,7 +6727,7 @@ implicitly when there's no window system support.
 Note that when a frame is not large enough to accommodate a change of
 any of the parameters listed above, Emacs may try to enlarge the frame
 even if this option is non-nil.  */);
-#if defined(HAVE_WINDOW_SYSTEM)
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
 #if defined USE_GTK || defined HAVE_MACGUI || defined HAVE_NS
   frame_inhibit_implied_resize = list1 (Qtab_bar_lines);
 #else
@@ -6870,7 +6870,7 @@ iconify the top level frame instead.  */);
   defsubr (&Sset_frame_window_state_change);
   defsubr (&Sframe_scale_factor);
 
-#ifdef HAVE_WINDOW_SYSTEM
+#if defined HAVE_WINDOW_SYSTEM || defined HAVE_MACGUI
   defsubr (&Sx_get_resource);
   defsubr (&Sx_parse_geometry);
 #endif
