@@ -808,7 +808,7 @@ clear_current_matrices (register struct frame *f)
     clear_glyph_matrix (XWINDOW (f->tab_bar_window)->current_matrix);
 #endif
 
-#ifdef HAVE_INT_TOOL_BAR
+#if defined(HAVE_WINDOW_SYSTEM) && !defined(HAVE_EXT_TOOL_BAR)
   /* Clear the matrix of the tool-bar window, if any.  */
   if (WINDOWP (f->tool_bar_window))
     clear_glyph_matrix (XWINDOW (f->tool_bar_window)->current_matrix);
@@ -838,7 +838,7 @@ clear_desired_matrices (register struct frame *f)
     clear_glyph_matrix (XWINDOW (f->tab_bar_window)->desired_matrix);
 #endif
 
-#ifdef HAVE_INT_TOOL_BAR
+#if defined(HAVE_WINDOW_SYSTEM) && !defined(HAVE_EXT_TOOL_BAR)
   if (WINDOWP (f->tool_bar_window))
     clear_glyph_matrix (XWINDOW (f->tool_bar_window)->desired_matrix);
 #endif
@@ -2232,7 +2232,7 @@ adjust_frame_glyphs_for_window_redisplay (struct frame *f)
   }
 #endif
 
-#ifdef HAVE_INT_TOOL_BAR
+#if defined(HAVE_WINDOW_SYSTEM) && !defined(HAVE_EXT_TOOL_BAR)
   {
     /* Allocate/ reallocate matrices of the tool bar window.  If we
        don't have a tool bar window yet, make one.  */
@@ -2328,7 +2328,7 @@ free_glyphs (struct frame *f)
         }
 #endif
 
-#ifdef HAVE_INT_TOOL_BAR
+#if defined(HAVE_WINDOW_SYSTEM) && !defined(HAVE_EXT_TOOL_BAR)
       /* Free the tool bar window and its glyph matrices.  */
       if (!NILP (f->tool_bar_window))
         {
@@ -3262,7 +3262,7 @@ update_frame (struct frame *f, bool force_p, bool inhibit_hairy_id_p)
         }
 #endif
 
-#ifdef HAVE_INT_TOOL_BAR
+#if defined(HAVE_WINDOW_SYSTEM) && !defined(HAVE_EXT_TOOL_BAR)
       /* Update the tool-bar window, if present.  */
       if (WINDOWP (f->tool_bar_window))
         {
