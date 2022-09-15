@@ -250,10 +250,10 @@ where it treats each chapter, section, etc., as a definition.
 together.)
 
 @findex imenu
-  If you type @kbd{M-x imenu}, it reads the name of a definition using
-the minibuffer, then moves point to that definition.  You can use
-completion to specify the name; the command always displays the whole
-list of valid names.
+  If you type @kbd{M-g i} (@code{imenu}), it reads the name of a
+definition using the minibuffer, then moves point to that definition.
+You can use completion to specify the name; the command always
+displays the whole list of valid names.
 
 @findex imenu-add-menubar-index
   Alternatively, you can bind the command @code{imenu} to a mouse
@@ -834,10 +834,16 @@ of automatic matching.  Whenever point is before an opening delimiter
 or after a closing delimiter, the delimiter, its matching delimiter,
 and optionally the text between them are highlighted.  To toggle Show
 Paren mode globally, type @kbd{M-x show-paren-mode}.  To toggle it
-only in the current buffer, type @kbd{M-x show-paren-local-mode}.  To
-customize it, type @w{@kbd{M-x customize-group @key{RET} paren-showing}}.
-The customizable options which control the operation of this mode
-include:
+only in the current buffer, type @kbd{M-x show-paren-local-mode}.
+
+@vindex show-paren-predicate
+  By default, this mode is switched on in all buffers that are meant
+for editing, but is not enabled in buffers that show data.  This is
+controlled by the @code{show-paren-predicate} user option.
+
+  To customize the mode, type @w{@kbd{M-x customize-group @key{RET}
+paren-showing}}.  The customizable options which control the operation
+of this mode include:
 
 @itemize @bullet
 @item
@@ -868,6 +874,15 @@ highlighting also when point is in whitespace at the beginning of a
 line and there is a paren at the first or last non-whitespace position
 on the line, or when point is at the end of a line and there is a
 paren at the last non-whitespace position on the line.
+
+@item
+@vindex show-paren-context-when-offscreen
+@code{show-paren-context-when-offscreen}, when non-@code{nil}, shows
+some context in the echo area when point is in a closing delimiter and
+the opening delimiter is offscreen.  The context is usually the line
+that contains the opening delimiter, except if the opening delimiter
+is on its own line, in which case the context includes the previous
+nonblank line.
 @end itemize
 
 @cindex Electric Pair mode
@@ -1430,9 +1445,13 @@ performs completion using the function, variable, or property names
 defined in the current Emacs session.
 
   In all other respects, in-buffer symbol completion behaves like
-minibuffer completion.  For instance, if Emacs cannot complete to a
-unique symbol, it displays a list of completion alternatives in
-another window.  @xref{Completion}.
+minibuffer completion.  For instance, if Emacs cannot complete to
+a unique symbol, it displays a list of completion alternatives in
+another window.  Then you can use the keys @kbd{M-@key{DOWN}} and
+@kbd{M-@key{UP}} to navigate through the completions displayed
+in the completions buffer without leaving the original buffer,
+and the key @kbd{M-@key{RET}} to insert the currently highlighted
+completion to the buffer.  @xref{Completion}.
 
   In Text mode and related modes, @kbd{M-@key{TAB}} completes words
 based on the spell-checker's dictionary.  @xref{Spelling}.
@@ -1818,7 +1837,7 @@ sure the keymap is loaded before we try to change it.
 
 @example
 (defun my-bind-clb ()
-  (define-key c-mode-base-map "\C-m"
+  (keymap-set c-mode-base-map "RET"
               'c-context-line-break))
 (add-hook 'c-initialization-hook 'my-bind-clb)
 @end example

@@ -142,6 +142,11 @@
 ;;       Put on the brace which introduces a brace list and on the commas
 ;;       which separate the elements within it.
 ;;
+;; 'c-<>-c-types-set
+;;   This property is set on an opening angle bracket, and indicates that
+;;   any "," separators within the template/generic expression have been
+;;   marked with a 'c-type property value 'c-<>-arg-sep (see above).
+;;
 ;; 'c-awk-NL-prop
 ;;   Used in AWK mode to mark the various kinds of newlines.  See
 ;;   cc-awk.el.
@@ -165,12 +170,16 @@
 (defvar c-doc-line-join-end-ch)
 (defvar c-syntactic-context)
 (defvar c-syntactic-element)
+(defvar c-new-id-start)
+(defvar c-new-id-end)
+(defvar c-new-id-is-type)
 (cc-bytecomp-defvar c-min-syn-tab-mkr)
 (cc-bytecomp-defvar c-max-syn-tab-mkr)
 (cc-bytecomp-defun c-clear-syn-tab)
 (cc-bytecomp-defun c-clear-string-fences)
 (cc-bytecomp-defun c-restore-string-fences)
 (cc-bytecomp-defun c-remove-string-fences)
+(cc-bytecomp-defun c-fontify-new-found-type)
 
 
 ;; Make declarations for all the `c-lang-defvar' variables in cc-langs.
@@ -1235,7 +1244,7 @@ comment at the start of cc-engine.el for more info."
 			   (not comma-delimited)
 			   (not (c-looking-at-inexpr-block lim nil t))
 			   (save-excursion
-			     (c-backward-token-2 1 t nil)
+			     (c-backward-token-2 1 t nil) ; Don't test the value
 			     (not (looking-at "=\\([^=]\\|$\\)")))
 			   (or
 			    (not c-opt-block-decls-with-vars-key)
@@ -3422,7 +3431,9 @@ initializing CC Mode.  Currently (2020-06) these are `js-mode' and
   ;; Return a good pos (in the sense of `c-state-cache-good-pos') at the
   ;; lowest[*] position between POS and HERE which is syntactically equivalent
   ;; to HERE.  This position may be HERE itself.  POS is before HERE in the
-  ;; buffer.
+  ;; buffer.  If POS and HERE are both in the same literal, return the start
+  ;; of the literal.  STATE is the parsing state at POS.
+  ;;
   ;; [*] We don't actually always determine this exact position, since this
   ;; would require a disproportionate amount of work, given that this function
   ;; deals only with a corner condition, and POS and HERE are typically on
@@ -3438,7 +3449,7 @@ initializing CC Mode.  Currently (2020-06) these are `js-mode' and
 	  (setq pos (point)
 		state s)))
       (if (eq (point) here)		; HERE is in the same literal as POS
-	  pos
+	  (nth 8 state)		    ; A valid good pos cannot be in a literal.
 	(setq s (parse-partial-sexp pos here (1+ (car state)) nil state nil))
 	(cond
 	 ((> (car s) (car state))  ; Moved into a paren between POS and HERE
@@ -3884,7 +3895,10 @@ initializing CC Mode.  Currently (2020-06) these are `js-mode' and
 		  (cons (if (and ce (< bra ce) (> ce here)) ; {..} straddling HERE?
 			    bra
 			  (point-min))
-			(min here from)))))))))
+			(progn
+			  (goto-char (min here from))
+			  (c-beginning-of-macro)
+			  (point))))))))))
 
 (defsubst c-state-push-any-brace-pair (bra+1 macro-start-or-here)
   ;; If BRA+1 is nil, do nothing.  Otherwise, BRA+1 is the buffer position
@@ -6128,7 +6142,7 @@ comment at the start of cc-engine.el for more info."
 			(forward-char))))
 	  (backward-char)
 	  (if (let ((c-parse-and-markup-<>-arglists t)
-		    (c-restricted-<>-arglists t))
+		    c-restricted-<>-arglists)
 		(c-forward-<>-arglist nil)) ; Should always work.
 	      (when (> (point) to)
 		(setq bound-<> (point)))
@@ -6139,7 +6153,7 @@ comment at the start of cc-engine.el for more info."
 	  (setq s (cons -1 (cdr s))))
 	 ((and (equal match ",")
 	       (eq (car s) -1)))	; at "," in "class foo : bar, ..."
-	 ((member match '(";" "*" "," "("))
+	 ((member match '(";" "*" "," ")"))
 	  (when (and s (cdr s) (<= (car s) 0))
 	    (setq s (cdr s))))
 	 ((c-keyword-member kwd-sym 'c-flat-decl-block-kwds)
@@ -6812,26 +6826,47 @@ comment at the start of cc-engine.el for more info."
 (defvar c-found-types nil)
 (make-variable-buffer-local 'c-found-types)
 
+;; Dynamically bound variable that instructs `c-forward-type' to
+;; record the ranges of types that only are found.  Behaves otherwise
+;; like `c-record-type-identifiers'.  Also when this variable is non-nil,
+;; `c-fontify-new-found-type' doesn't get called (yet) for the purported
+;; type.
+(defvar c-record-found-types nil)
+
 (defsubst c-clear-found-types ()
   ;; Clears `c-found-types'.
   (setq c-found-types
 	(make-hash-table :test #'equal :weakness nil)))
 
-(defun c-add-type (from to)
-  ;; Add the given region as a type in `c-found-types'.  If the region
-  ;; doesn't match an existing type but there is a type which is equal
-  ;; to the given one except that the last character is missing, then
-  ;; the shorter type is removed.  That's done to avoid adding all
-  ;; prefixes of a type as it's being entered and font locked.  This
-  ;; doesn't cover cases like when characters are removed from a type
-  ;; or added in the middle.  We'd need the position of point when the
-  ;; font locking is invoked to solve this well.
+(defun c-add-type-1 (from to)
+  ;; Add the given region as a type in `c-found-types'.  Prepare occurrences
+  ;; of this new type for fontification throughout the buffer.
   ;;
   ;; This function might do hidden buffer changes.
   (let ((type (c-syntactic-content from to c-recognize-<>-arglists)))
     (unless (gethash type c-found-types)
-      (remhash (substring type 0 -1) c-found-types)
-      (puthash type t c-found-types))))
+      (puthash type t c-found-types)
+      (when (and (not c-record-found-types) ; Only call `c-fontify-new-found-type'
+					; when we haven't "bound" c-found-types
+					; to itself in c-forward-<>-arglist.
+		 (eq (string-match c-symbol-key type) 0)
+		 (eq (match-end 0) (length type)))
+	(c-fontify-new-found-type type)))))
+
+(defun c-add-type (from to)
+  ;; Add the given region as a type in `c-found-types'.  Also perform the
+  ;; actions of `c-add-type-1'.  If the region is or overlaps an identifier
+  ;; which might be being typed in, don't record it.  This is tested by
+  ;; checking `c-new-id-start' and `c-new-id-end'.  That's done to avoid
+  ;; adding all prefixes of a type as it's being entered and font locked.
+  ;; This is a bit rough and ready, but now covers adding characters into the
+  ;; middle of an identifier.
+  ;;
+  ;; This function might do hidden buffer changes.
+  (if (and c-new-id-start c-new-id-end
+	   (<= from c-new-id-end) (>= to c-new-id-start))
+      (setq c-new-id-is-type t)
+    (c-add-type-1 from to)))
 
 (defun c-unfind-type (name)
   ;; Remove the "NAME" from c-found-types, if present.
@@ -8214,11 +8249,6 @@ multi-line strings (but not C++, for example)."
 	   (setq c-record-ref-identifiers
 		 (cons range c-record-ref-identifiers))))))
 
-;; Dynamically bound variable that instructs `c-forward-type' to
-;; record the ranges of types that only are found.  Behaves otherwise
-;; like `c-record-type-identifiers'.
-(defvar c-record-found-types nil)
-
 (defmacro c-forward-keyword-prefixed-id (type)
   ;; Used internally in `c-forward-keyword-clause' to move forward
   ;; over a type (if TYPE is 'type) or a name (otherwise) which
@@ -8268,9 +8298,10 @@ multi-line strings (but not C++, for example)."
 (defun c-forward-noise-clause ()
   ;; Point is at a c-noise-macro-with-parens-names macro identifier.  Go
   ;; forward over this name, any parenthesis expression which follows it, and
-  ;; any syntactic WS, ending up at the next token.  If there is an unbalanced
-  ;; paren expression, leave point at it.  Always Return t.
-  (c-forward-token-2)
+  ;; any syntactic WS, ending up at the next token or EOB.  If there is an
+  ;; unbalanced paren expression, leave point at it.  Always Return t.
+  (or (zerop (c-forward-token-2))
+      (goto-char (point-max)))
   (if (and (eq (char-after) ?\()
 	   (c-go-list-forward))
       (c-forward-syntactic-ws))
@@ -8448,6 +8479,11 @@ multi-line strings (but not C++, for example)."
 		(c-forward-<>-arglist-recur all-types)))
 	(progn
 	  (when (consp c-record-found-types)
+	    (let ((cur c-record-found-types))
+	      (while (consp (car-safe cur))
+		(c-fontify-new-found-type
+		 (buffer-substring-no-properties (caar cur) (cdar cur)))
+		(setq cur (cdr cur))))
 	    (setq c-record-type-identifiers
 		  ;; `nconc' doesn't mind that the tail of
 		  ;; `c-record-found-types' is t.
@@ -8474,9 +8510,9 @@ multi-line strings (but not C++, for example)."
 	arg-start-pos)
     ;; If the '<' has paren open syntax then we've marked it as an angle
     ;; bracket arglist before, so skip to the end.
-    (if (and (not c-parse-and-markup-<>-arglists)
-	     syntax-table-prop-on-<)
-
+    (if (and syntax-table-prop-on-<
+	     (or (not c-parse-and-markup-<>-arglists)
+		 (c-get-char-property (point) 'c-<>-c-types-set)))
 	(progn
 	  (forward-char)
 	  (if (and (c-go-up-list-forward)
@@ -8573,6 +8609,7 @@ multi-line strings (but not C++, for example)."
 			       (c-unmark-<->-as-paren (point)))))
 		      (c-mark-<-as-paren start)
 		      (c-mark->-as-paren (1- (point)))
+		      (c-put-char-property start 'c-<>-c-types-set t)
 		      (c-truncate-lit-pos-cache start))
 		    (setq res t)
 		    nil))		; Exit the loop.
@@ -9173,6 +9210,12 @@ multi-line strings (but not C++, for example)."
 
 		(when (and (eq res t)
 			   (consp c-record-found-types))
+		  ;; Cause the confirmed types to get fontified.
+		  (let ((cur c-record-found-types))
+		    (while (consp (car-safe cur))
+		      (c-fontify-new-found-type
+		       (buffer-substring-no-properties (caar cur) (cdar cur)))
+		      (setq cur (cdr cur))))
 		  ;; Merge in the ranges of any types found by the second
 		  ;; `c-forward-type'.
 		  (setq c-record-type-identifiers
@@ -9422,7 +9465,8 @@ point unchanged and return nil."
 
 (defun c-forward-declarator (&optional limit accept-anon)
   ;; Assuming point is at the start of a declarator, move forward over it,
-  ;; leaving point at the next token after it (e.g. a ) or a ; or a ,).
+  ;; leaving point at the next token after it (e.g. a ) or a ; or a ,), or at
+  ;; end of buffer if there is no such token.
   ;;
   ;; Return a list (ID-START ID-END BRACKETS-AFTER-ID GOT-INIT DECORATED),
   ;; where ID-START and ID-END are the bounds of the declarator's identifier,
@@ -9462,44 +9506,44 @@ point unchanged and return nil."
 	   ;; of the while.  These are, e.g. "*" in "int *foo" or "(" and
 	   ;; "*" in "int (*foo) (void)" (Note similar code in
 	   ;; `c-forward-decl-or-cast-1'.)
-	      (while
-		  (cond
-		   ((looking-at c-decl-hangon-key)
-		    (c-forward-keyword-clause 1))
-		   ((and c-opt-cpp-prefix
-			 (looking-at c-noise-macro-with-parens-name-re))
-		    (c-forward-noise-clause))
-		   ((and (looking-at c-type-decl-prefix-key)
-			 (if (and (c-major-mode-is 'c++-mode)
-				  (match-beginning 4)) ; Was 3 - 2021-01-01
-			     ;; If the third submatch matches in C++ then
-			     ;; we're looking at an identifier that's a
-			     ;; prefix only if it specifies a member pointer.
-			     (progn
-			       (setq id-start (point))
-			       (c-forward-name)
-			       (if (save-match-data
-				     (looking-at "\\(::\\)"))
-				   ;; We only check for a trailing "::" and
-				   ;; let the "*" that should follow be
-				   ;; matched in the next round.
-				   t
-				 ;; It turned out to be the real identifier,
-				 ;; so flag that and stop.
-				 (setq got-identifier t)
-				 nil))
-			   t))
-		    (if (save-match-data
-			  (looking-at c-type-decl-operator-prefix-key))
-			(setq decorated t))
-		    (if (eq (char-after) ?\()
-			(progn
-			  (setq paren-depth (1+ paren-depth))
-			  (forward-char))
-		      (goto-char (or (match-end 1)
-				     (match-end 2))))
-		    (c-forward-syntactic-ws)
-		    t)))
+	   (while
+	       (cond
+		((looking-at c-decl-hangon-key)
+		 (c-forward-keyword-clause 1))
+		((and c-opt-cpp-prefix
+		      (looking-at c-noise-macro-with-parens-name-re))
+		 (c-forward-noise-clause))
+		((and (looking-at c-type-decl-prefix-key)
+		      (if (and (c-major-mode-is 'c++-mode)
+			       (match-beginning 4)) ; Was 3 - 2021-01-01
+			  ;; If the third submatch matches in C++ then
+			  ;; we're looking at an identifier that's a
+			  ;; prefix only if it specifies a member pointer.
+			  (progn
+			    (setq id-start (point))
+			    (c-forward-name)
+			    (if (save-match-data
+				  (looking-at "\\(::\\)"))
+				;; We only check for a trailing "::" and
+				;; let the "*" that should follow be
+				;; matched in the next round.
+				t
+			      ;; It turned out to be the real identifier,
+			      ;; so flag that and stop.
+			      (setq got-identifier t)
+			      nil))
+			t))
+		 (if (save-match-data
+		       (looking-at c-type-decl-operator-prefix-key))
+		     (setq decorated t))
+		 (if (eq (char-after) ?\()
+		     (progn
+		       (setq paren-depth (1+ paren-depth))
+		       (forward-char))
+		   (goto-char (or (match-end 1)
+				  (match-end 2))))
+		 (c-forward-syntactic-ws)
+		 t)))
 
 	   ;; If we haven't passed the identifier already, do it now.
 	   (unless got-identifier
@@ -9520,7 +9564,8 @@ point unchanged and return nil."
 	 (or (= paren-depth 0)
 	     (c-safe (goto-char (scan-lists (point) 1 paren-depth))))
 
-	 (<= (point) limit)
+	 (or (eq (point) (point-max))	; No token after identifier.
+	     (< (point) limit))
 
 	 ;; Skip over any trailing bit, such as "__attribute__".
 	 (progn
@@ -9910,6 +9955,10 @@ This function might do hidden buffer changes."
 	;; Set when we have encountered a keyword (e.g. "extern") which
 	;; causes the following declaration to be treated as though top-level.
 	make-top
+	;; A list of found types in this declaration.  This is an association
+	;; list, the car being the buffer position, the cdr being the
+	;; identifier.
+	found-type-list
 	;; Save `c-record-type-identifiers' and
 	;; `c-record-ref-identifiers' since ranges are recorded
 	;; speculatively and should be thrown away if it turns out
@@ -9979,10 +10028,17 @@ This function might do hidden buffer changes."
 		;; If the previous identifier is a found type we
 		;; record it as a real one; it might be some sort of
 		;; alias for a prefix like "unsigned".
-		(save-excursion
-		  (goto-char type-start)
-		  (let ((c-promote-possible-types t))
-		    (c-forward-type))))
+		;; We postpone entering the new found type into c-found-types
+		;; until we are sure of it, thus preventing rapid alternation
+		;; of the fontification of the token throughout the buffer.
+		(push (cons type-start
+			    (buffer-substring-no-properties
+			     type-start
+			     (save-excursion
+			       (goto-char type-start)
+			       (c-end-of-token)
+			       (point))))
+		      found-type-list))
 
 	      ;; Signal a type declaration for "struct foo {".
 	      (when (and backup-at-type-decl
@@ -10228,13 +10284,10 @@ This function might do hidden buffer changes."
 		   (when (eq at-type 'found)
 		     ;; Remove the ostensible type from the found types list.
 		     (when type-start
-		       (c-unfind-type
-			(buffer-substring-no-properties
-			 type-start
-			 (save-excursion
-			   (goto-char type-start)
-			   (c-end-of-token)
-			   (point)))))
+		       (let ((discard-t (assq type-start found-type-list)))
+			 (when discard-t
+			   (setq found-type-list
+				 (remq discard-t found-type-list)))))
 		     t))
 	       ;; The token which we assumed to be a type is actually the
 	       ;; identifier, and we have no explicit type.
@@ -10526,8 +10579,8 @@ This function might do hidden buffer changes."
 			backup-maybe-typeless
 			(when c-recognize-typeless-decls
 			  (or (not got-suffix)
-			      (not (looking-at
-				    c-after-suffixed-type-maybe-decl-key))))))
+			      (looking-at
+			       c-after-suffixed-type-maybe-decl-key)))))
 	       ;; Got an empty paren pair and a preceding type that probably
 	       ;; really is the identifier.  Shift the type backwards to make
 	       ;; the last one the identifier.  This is analogous to the
@@ -10847,6 +10900,14 @@ This function might do hidden buffer changes."
 	;; the next argument if it's set in this one, to cope with
 	;; interactive refontification.
 	(c-put-c-type-property (point) 'c-decl-arg-start))
+
+      ;; Enter all the found types into `c-found-types'.
+      (when found-type-list
+	(save-excursion
+	  (let ((c-promote-possible-types t))
+	    (dolist (ft found-type-list)
+	      (goto-char (car ft))
+	      (c-forward-type)))))
 
       ;; Record the type's coordinates in `c-record-type-identifiers' for
       ;; later fontification.
@@ -12096,7 +12157,10 @@ comment at the start of cc-engine.el for more info."
 	   (and (c-major-mode-is 'pike-mode)
 		c-decl-block-key)))
     (while (eq braceassignp 'dontknow)
-      (cond ((eq (char-after) ?\;)
+      (cond ((or (eq (char-after) ?\;)
+		 (save-excursion
+		   (progn (c-backward-syntactic-ws)
+			  (c-at-vsemi-p))))
 	     (setq braceassignp nil))
 	    ((and class-key
 		  (looking-at class-key))
@@ -14020,7 +14084,8 @@ comment at the start of cc-engine.el for more info."
 	      ;; clause - we assume only C++ needs it.
 	      (c-syntactic-skip-backward "^;,=" lim t))
 	    (setq placeholder (point))
-	    (memq (char-before) '(?, ?= ?<)))
+	    (and (memq (char-before) '(?, ?= ?<))
+		 (not (c-crosses-statement-barrier-p (point) indent-point))))
 	  (cond
 
 	   ;; CASE 5D.6: Something like C++11's "using foo = <type-exp>"

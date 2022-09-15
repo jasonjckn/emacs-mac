@@ -672,7 +672,6 @@ Return the byte's value as an integer."
     (let* ((result nil)
            (flen (length fname))
            (case-fold-search nil)
-           (inhibit-changing-match-data t)
            ;; Find a conservative bound for the loop below by using
            ;; Boyer-Moore on the raw dirstate without parsing it; we
            ;; know we can't possibly find fname _after_ the last place
@@ -908,7 +907,7 @@ if we don't understand a construct, we signal
         ;; should cover the common cases.  Remember that we fall back
         ;; to regular hg commands if we see something we don't like.
         (save-restriction
-          (narrow-to-region (point) (point-at-eol))
+          (narrow-to-region (point) (line-end-position))
           (cond ((looking-at "[ \t]*\\(?:#.*\\)?$"))
                 ((looking-at "syntax:[ \t]*re[ \t]*$")
                  (setf default-syntax 'vc-hg--hgignore-add-pcre))
@@ -967,7 +966,7 @@ REPO must be the directory name of an hg repository."
              (attr (file-attributes (nth 0 fs)))
              (current-mtime (file-attribute-modification-time attr))
              (current-size (file-attribute-size attr)))
-        (unless (and (equal saved-mtime current-mtime)
+	(unless (and (time-equal-p saved-mtime current-mtime)
                      (equal saved-size current-size))
           (setf valid nil))))
     valid))
@@ -976,10 +975,9 @@ REPO must be the directory name of an hg repository."
   "Test whether the ignore pattern set HGIP says to ignore FILENAME.
 FILENAME must be the file's true absolute name."
   (let ((patterns (vc-hg--ignore-patterns-ignore-patterns hgip))
-        (inhibit-changing-match-data t)
         (ignored nil))
     (while (and patterns (not ignored))
-      (setf ignored (string-match (pop patterns) filename)))
+      (setf ignored (string-match-p (pop patterns) filename)))
     ignored))
 
 (defvar vc-hg--cached-ignore-patterns nil
@@ -1039,11 +1037,12 @@ Avoids the need to repeatedly scan dirstate on repeated calls to
          )
     (if (and cache
              (equal dirstate (pop cache))
-             (equal mtime (pop cache))
+	     (time-equal-p mtime (pop cache))
              (equal size (pop cache))
              (equal ascii-fname (pop cache)))
         (pop cache)
-      (let ((result (vc-hg--raw-dirstate-search dirstate ascii-fname)))
+      (let ((result (save-match-data
+                      (vc-hg--raw-dirstate-search dirstate ascii-fname))))
         (setf vc-hg--dirstate-scan-cache
               (list dirstate mtime size ascii-fname result))
         result))))
@@ -1178,10 +1177,9 @@ If toggling on, also insert its message into the buffer."
         standard-output 1 nil
         "log" "--limit=1" "--template" "{desc}")))))
 
-(defvar vc-hg-log-edit-mode-map
-  (let ((map (make-sparse-keymap "Hg-Log-Edit")))
-    (define-key map "\C-c\C-e" #'vc-hg-log-edit-toggle-amend)
-    map))
+(defvar-keymap vc-hg-log-edit-mode-map
+  :name "Hg-Log-Edit"
+  "C-c C-e" #'vc-hg-log-edit-toggle-amend)
 
 (define-derived-mode vc-hg-log-edit-mode log-edit-mode "Log-Edit/hg"
   "Major mode for editing Hg log messages.
@@ -1263,9 +1261,7 @@ REV is the revision to check out into WORKFILE."
 
 ;;; Hg specific functionality.
 
-(defvar vc-hg-extra-menu-map
-  (let ((map (make-sparse-keymap)))
-    map))
+(defvar-keymap vc-hg-extra-menu-map)
 
 (defun vc-hg-extra-menu () vc-hg-extra-menu-map)
 

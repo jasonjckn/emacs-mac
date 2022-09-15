@@ -430,13 +430,16 @@ middle of a character representation.
 This function measures the string length in characters or bytes, and
 thus is generally inappropriate if you need to shorten strings for
 display purposes; use @code{truncate-string-to-width} or
-@code{window-text-pixel-size} instead (@pxref{Size of Displayed
-Text}).
+@code{window-text-pixel-size} or @code{string-glyph-split} instead
+(@pxref{Size of Displayed Text}).
 @end defun
 
-@defun string-lines string &optional omit-nulls
+@defun string-lines string &optional omit-nulls keep-newlines
 Split @var{string} into a list of strings on newline boundaries.  If
-@var{omit-nulls}, remove empty lines from the results.
+the optional argument @var{omit-nulls} is non-@code{nil}, remove empty
+lines from the results.  If the optional argument @var{keep-newlines}
+is non-@code{nil}, don't remove the trailing newlines from the result
+strings.
 @end defun
 
 @defun string-pad string length &optional padding start
@@ -555,6 +558,12 @@ Representations}.
 
 @defun string-equal string1 string2
 @code{string-equal} is another name for @code{string=}.
+@end defun
+
+@defun string-equal-ignore-case string1 string2
+@code{string-equal-ignore-case} compares strings ignoring case
+differences, like @code{char-equal} when @code{case-fold-search} is
+@code{t}.
 @end defun
 
 @cindex locale-dependent string equivalence

@@ -217,7 +217,7 @@ Integrity checks and auto-termination of logical blocks.
 @item
 Routine name space conflict search with likelihood-of-use ranking.
 @item
-Support for @file{imenu} (Emacs) and @file{func-menu} (XEmacs).
+Support for @file{imenu}.
 @item
 Documentation support.
 @item
@@ -2298,12 +2298,11 @@ Regexp matching the start of a document library header.
 @cindex Motion commands
 @cindex Program structure, moving through
 @cindex Code structure, moving through
-@cindex @file{Func-menu}, XEmacs package
-@cindex @file{Imenu}, Emacs package
+@cindex @file{Imenu}
 @cindex Function definitions, jumping to
 @cindex Procedure definitions, jumping to
 
-IDLWAVE supports both @file{Imenu} and @file{Func-menu}, two packages
+IDLWAVE supports @file{Imenu}, a package
 which make it easy to jump to the definitions of functions and
 procedures in the current file with a pop-up selection.  To bind
 @file{Imenu} to a mouse-press, use in your @file{.emacs}:
@@ -2670,7 +2669,7 @@ As a special case, any error message in the output will be displayed
 @node Debugging IDL Programs
 @section Debugging IDL Programs
 @cindex Debugging
-@cindex Keybindings for debugging
+@cindex Key bindings for debugging
 @cindex Toolbar
 
 Programs can be compiled, run, and debugged directly from the source
@@ -4116,17 +4115,6 @@ console shell, the environment is set not from your usual shell
 configuration files (e.g., @file{.cshrc}), but from the file
 @file{~/.MacOSX/environment.plist}.  Either include your path settings
 there, or start Emacs and IDLWAVE from the shell.
-
-@item @strong{I'm getting errors like @samp{Symbol's value as variable is void:
-cl-builtin-gethash} on completion or routine info.}
-
-This error arises if you upgraded Emacs from 20.x to 21.x without
-re-installing IDLWAVE@.  Old Emacs and new Emacs are not byte-compatible
-in compiled lisp files.  Presumably, you kept the original .elc files in
-place, and this is the source of the error.  If you recompile (or just
-"make; make install") from source, it should resolve this problem.
-Another option is to recompile the @file{idlw*.el} files by hand using
-@kbd{M-x byte-compile-file}.
 
 @item @strong{@kbd{M-@key{TAB}} doesn't complete words, it switches
 windows on my desktop.}

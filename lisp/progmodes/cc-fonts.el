@@ -97,6 +97,7 @@
 (cc-bytecomp-defun c-font-lock-declarators)
 (cc-bytecomp-defun c-font-lock-objc-method)
 (cc-bytecomp-defun c-font-lock-invalid-string)
+(cc-bytecomp-defun c-font-lock-fontify-region)
 
 
 ;; Note that font-lock in XEmacs doesn't expand face names as
@@ -284,6 +285,7 @@
     (byte-compile
      `(lambda (limit)
 	(let (res)
+	  (c-skip-comments-and-strings limit)
 	  (while (and (setq res (re-search-forward ,regexp limit t))
 		      (progn
 			(goto-char (match-beginning 0))
@@ -299,43 +301,45 @@
     ;; with HIGHLIGHTS, a list of highlighters as specified on page
     ;; "Search-based Fontification" in the elisp manual.  If CHECK-POINT
     ;; is non-nil, we will check (< (point) limit) in the main loop.
-    `(while
-	 ,(if check-point
-	      `(and (< (point) limit)
-		    (re-search-forward ,regexp limit t))
-	    `(re-search-forward ,regexp limit t))
-       (unless (progn
-		 (goto-char (match-beginning 0))
-		 (c-skip-comments-and-strings limit))
-	 (goto-char (match-end 0))
-	 ,@(mapcar
-	    (lambda (highlight)
-	      (if (integerp (car highlight))
-		  ;; e.g. highlight is (1 font-lock-type-face t)
-		  (progn
-		    (unless (eq (nth 2 highlight) t)
-		      (error
-		       "The override flag must currently be t in %s"
-		       highlight))
-		    (when (nth 3 highlight)
-		      (error
-		       "The laxmatch flag may currently not be set in %s"
-		       highlight))
-		    `(save-match-data
-		       (c-put-font-lock-face
-			(match-beginning ,(car highlight))
-			(match-end ,(car highlight))
-			,(elt highlight 1))))
-		;; highlight is an "ANCHORED HIGHLIGHTER" of the form
-		;; (ANCHORED-MATCHER PRE-FORM POST-FORM SUBEXP-HIGHLIGHTERS...)
-		(when (nth 3 highlight)
-		  (error "Match highlights currently not supported in %s"
+    `(progn
+       (c-skip-comments-and-strings limit)
+       (while
+	   ,(if check-point
+		`(and (< (point) limit)
+		      (re-search-forward ,regexp limit t))
+	      `(re-search-forward ,regexp limit t))
+	 (unless (progn
+		   (goto-char (match-beginning 0))
+		   (c-skip-comments-and-strings limit))
+	   (goto-char (match-end 0))
+	   ,@(mapcar
+	      (lambda (highlight)
+		(if (integerp (car highlight))
+		    ;; e.g. highlight is (1 font-lock-type-face t)
+		    (progn
+		      (unless (eq (nth 2 highlight) t)
+			(error
+			 "The override flag must currently be t in %s"
 			 highlight))
-		`(progn
-		   ,(nth 1 highlight)
-		   (save-match-data ,(car highlight))
-		   ,(nth 2 highlight))))
-	    highlights))))
+		      (when (nth 3 highlight)
+			(error
+			 "The laxmatch flag may currently not be set in %s"
+			 highlight))
+		      `(save-match-data
+			 (c-put-font-lock-face
+			  (match-beginning ,(car highlight))
+			  (match-end ,(car highlight))
+			  ,(elt highlight 1))))
+		  ;; highlight is an "ANCHORED HIGHLIGHTER" of the form
+		  ;; (ANCHORED-MATCHER PRE-FORM POST-FORM SUBEXP-HIGHLIGHTERS...)
+		  (when (nth 3 highlight)
+		    (error "Match highlights currently not supported in %s"
+			   highlight))
+		  `(progn
+		     ,(nth 1 highlight)
+		     (save-match-data ,(car highlight))
+		     ,(nth 2 highlight))))
+	      highlights)))))
 
   (defun c-make-font-lock-search-function (regexp &rest highlights)
     ;; This function makes a byte compiled function that works much like
@@ -415,6 +419,8 @@
     ;; lambda more easily.
     (byte-compile
      `(lambda (limit)
+	(let ((lit-start (c-literal-start)))
+	  (when lit-start (goto-char lit-start)))
 	(let ( ;; The font-lock package in Emacs is known to clobber
 	      ;; `parse-sexp-lookup-properties' (when it exists).
 	      (parse-sexp-lookup-properties
@@ -919,13 +925,6 @@ casts and declarations are fontified.  Used on level 2 and higher."
   ;; This function does hidden buffer changes.
 
   ;;(message "c-font-lock-complex-decl-prepare %s %s" (point) limit)
-
-  ;; Clear the list of found types if we start from the start of the
-  ;; buffer, to make it easier to get rid of misspelled types and
-  ;; variables that have gotten recognized as types in malformed code.
-  (when (bobp)
-    (c-clear-found-types))
-
   (c-skip-comments-and-strings limit)
   (when (< (point) limit)
 
@@ -935,16 +934,16 @@ casts and declarations are fontified.  Used on level 2 and higher."
     (save-excursion
       (let ((pos (point)))
 	(c-backward-syntactic-ws (max (- (point) 500) (point-min)))
-	(c-clear-char-properties
-	 (if (and (not (bobp))
-		  (memq (c-get-char-property (1- (point)) 'c-type)
-			'(c-decl-arg-start
-			  c-decl-end
-			  c-decl-id-start
-			  c-decl-type-start)))
-	     (1- (point))
-	   pos)
-	 limit 'c-type)))
+	(when (and (not (bobp))
+		   (memq (c-get-char-property (1- (point)) 'c-type)
+			 '(c-decl-arg-start
+			   c-decl-end
+			   c-decl-id-start
+			   c-decl-type-start
+			   c-not-decl)))
+	  (setq pos (1- (point))))
+	(c-clear-char-properties pos limit 'c-type)
+	(c-clear-char-properties pos limit 'c-<>-c-types-set)))
 
     ;; Update `c-state-cache' to the beginning of the region.  This will
     ;; make `c-beginning-of-syntax' go faster when it's used later on,
@@ -2257,6 +2256,49 @@ higher."
     ;; The overriding is done by unbinding the variable so that the normal
     ;; defvar will install its default value later on.
     (makunbound def-var)))
+
+;; `c-re-redisplay-timer' is a timer which, when triggered, causes a
+;; redisplay.
+(defvar c-re-redisplay-timer nil)
+
+(defun c-force-redisplay (buffer start end)
+  ;; Force redisplay immediately.  This assumes `font-lock-support-mode' is
+  ;; 'jit-lock-mode.  Set the variable `c-re-redisplay-timer' to nil.
+  (with-current-buffer buffer
+    (save-excursion (c-font-lock-fontify-region start end))
+    (jit-lock-force-redisplay (copy-marker start) (copy-marker end))
+    (setq c-re-redisplay-timer nil)))
+
+(defun c-fontify-new-found-type (type)
+  ;; Cause the fontification of TYPE, a string, wherever it occurs in the
+  ;; buffer.  If TYPE is currently displayed in a window, cause redisplay to
+  ;; happen "instantaneously".  These actions are done only when jit-lock-mode
+  ;; is active.
+  (when (and font-lock-mode
+	     (boundp 'font-lock-support-mode)
+	     (eq font-lock-support-mode 'jit-lock-mode))
+    (c-save-buffer-state
+	((window-boundaries
+	  (mapcar (lambda (win)
+		    (cons (window-start win)
+			  (window-end win)))
+		  (get-buffer-window-list (current-buffer) 'no-mini t)))
+	 (target-re (concat "\\_<" type "\\_>")))
+      (save-excursion
+	(save-restriction
+	  (widen)
+	  (goto-char (point-min))
+	  (while (re-search-forward target-re nil t)
+	    (put-text-property (match-beginning 0) (match-end 0)
+			       'fontified nil)
+	    (dolist (win-boundary window-boundaries)
+	      (when (and (< (match-beginning 0) (cdr win-boundary))
+			 (> (match-end 0) (car win-boundary))
+			 (not c-re-redisplay-timer))
+		(setq c-re-redisplay-timer
+		      (run-with-timer 0 nil #'c-force-redisplay
+				      (current-buffer)
+				      (match-beginning 0) (match-end 0)))))))))))
 
 
 ;;; C.

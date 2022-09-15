@@ -1475,18 +1475,15 @@ argument says to read a file name and use that file as the inbox."
   (forward-line -1))
 
 (declare-function rmail-abort-edit "rmailedit" ())
-(declare-function rmail-cease-edit "rmailedit"())
+(declare-function rmail-cease-edit "rmailedit" (&optional abort))
 (declare-function rmail-set-label "rmailkwd" (l state &optional n))
 (declare-function rmail-output-read-file-name "rmailout" ())
 (declare-function mail-send-and-exit "sendmail" (&optional arg))
 
-(defvar rmail-summary-edit-map nil)
-(if rmail-summary-edit-map
-    nil
-  (setq rmail-summary-edit-map
-	(nconc (make-sparse-keymap) text-mode-map))
-  (define-key rmail-summary-edit-map "\C-c\C-c" 'rmail-cease-edit)
-  (define-key rmail-summary-edit-map "\C-c\C-]" 'rmail-abort-edit))
+(defvar-keymap rmail-summary-edit-map
+  :parent text-mode-map
+  "C-c C-c" #'rmail-cease-edit
+  "C-c C-]" #'rmail-abort-edit)
 
 (defun rmail-summary-edit-current-message ()
   "Edit the contents of this message."
@@ -1730,8 +1727,6 @@ even if the header display is currently pruned."
 	(if (< i n)
 	    (rmail-summary-next-msg 1))))))
 
-(defalias 'rmail-summary-output-to-rmail-file 'rmail-summary-output)
-
 (declare-function rmail-output-as-seen "rmailout"
 		  (file-name &optional count noattribute from-gnus))
 
@@ -1877,10 +1872,9 @@ the summary is only showing a subset of messages."
 	       (funcall sortfun reverse))
       (select-window selwin))))
 
-(provide 'rmailsum)
+(define-obsolete-function-alias 'rmail-summary-output-to-rmail-file
+  #'rmail-summary-output "29.1")
 
-;; Local Variables:
-;; generated-autoload-file: "rmail-loaddefs.el"
-;; End:
+(provide 'rmailsum)
 
 ;;; rmailsum.el ends here

@@ -39,7 +39,7 @@
 (declare-function org-calendar-goto-agenda "org-agenda" ())
 (declare-function org-align-tags "org" (&optional all))
 (declare-function org-at-heading-p "org" (&optional ignored))
-(declare-function org-at-table.el-p "org" ())
+(declare-function org-at-table.el-p "org-table" ())
 (declare-function org-element-at-point "org-element" ())
 (declare-function org-element-context "org-element" (&optional element))
 (declare-function org-element-lineage "org-element" (blob &optional types with-self))
@@ -204,8 +204,7 @@ extension beyond end of line was not controllable."
   (defsubst file-attribute-modification-time (attributes)
     "The modification time in ATTRIBUTES returned by `file-attributes'.
 This is the time of the last change to the file's contents, and
-is a list of integers (HIGH LOW USEC PSEC) in the same style
-as (current-time)."
+is a Lisp timestamp in the same style as `current-time'."
     (nth 5 attributes)))
 
 (unless (fboundp 'file-attribute-size)
@@ -244,7 +243,7 @@ This is a floating point number if the size is too large for an integer."
 (if (fboundp 'string-collate-lessp)
     (defalias 'org-string-collate-lessp
       'string-collate-lessp)
-  (defun org-string-collate-lessp (s1 s2 &rest _)
+  (defun org-string-collate-lessp (s1 s2 &optional _ _)
     "Return non-nil if STRING1 is less than STRING2 in lexicographic order.
 Case is significant."
     (string< s1 s2)))
@@ -940,6 +939,14 @@ Implements `define-error' for older emacsen."
     (put name 'error-conditions
          (copy-sequence (cons name (get 'error 'error-conditions))))))
 
+(unless (fboundp 'string-equal-ignore-case)
+  ;; From Emacs subr.el.
+  (defun string-equal-ignore-case (string1 string2)
+    "Like `string-equal', but case-insensitive.
+Upper-case and lower-case letters are treated as equal.
+Unibyte strings are converted to multibyte for comparison."
+    (eq t (compare-strings string1 0 nil string2 0 nil t))))
+
 (unless (fboundp 'string-suffix-p)
   ;; From Emacs subr.el.
   (defun string-suffix-p (suffix string  &optional ignore-case)
@@ -1026,7 +1033,7 @@ To get rid of the restriction, use `\\[org-agenda-remove-restriction-lock]'."
   (require 'org-agenda)
   (let (p m tp np dir txt)
     (cond
-     ((setq p (text-property-any (point-at-bol) (point-at-eol)
+     ((setq p (text-property-any (line-beginning-position) (line-end-position)
 				 'org-imenu t))
       (setq m (get-text-property p 'org-imenu-marker))
       (with-current-buffer (marker-buffer m)
@@ -1036,7 +1043,7 @@ To get rid of the restriction, use `\\[org-agenda-remove-restriction-lock]'."
 			 (overlays-at (point))))
 	    (org-agenda-remove-restriction-lock 'noupdate)
 	  (org-agenda-set-restriction-lock 'subtree))))
-     ((setq p (text-property-any (point-at-bol) (point-at-eol)
+     ((setq p (text-property-any (line-beginning-position) (line-end-position)
 				 'speedbar-function 'speedbar-find-file))
       (setq tp (previous-single-property-change
 		(1+ p) 'speedbar-function)
@@ -1053,7 +1060,7 @@ To get rid of the restriction, use `\\[org-agenda-remove-restriction-lock]'."
 	(org-agenda-set-restriction-lock 'file)))
      (t (user-error "Don't know how to restrict Org mode agenda")))
     (move-overlay org-speedbar-restriction-lock-overlay
-		  (point-at-bol) (point-at-eol))
+                  (line-beginning-position) (line-end-position))
     (setq current-prefix-arg nil)
     (org-agenda-maybe-redo)))
 
@@ -1131,10 +1138,8 @@ ELEMENT is the element at point."
 	  (and log
 	       (let ((drawer (org-element-lineage element '(drawer))))
 		 (and drawer
-		      (eq (compare-strings
-			   log nil nil
-			   (org-element-property :drawer-name drawer) nil nil t)
-			  t)))))
+		      (string-equal-ignore-case
+		       log (org-element-property :drawer-name drawer))))))
 	nil)
        (t
 	(cl-case (org-element-type element)

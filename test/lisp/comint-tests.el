@@ -43,6 +43,7 @@
     "PIN for user:"        ; Bug#35523
     "Password (again):"
     "Enter password:"
+    "(user@host) Password: " ; openssh-8.6p1
     "Current password:"    ; "passwd" (to change password) in Debian.
     "Enter encryption key: " ; ccrypt
     "Enter decryption key: " ; ccrypt
@@ -93,9 +94,5 @@ flow.  Hook function returns alternative password."
   "Test that `comint-password-function' does not alter the normal
 password flow if it returns a nil value."
   (comint-tests/test-password-function #'ignore))
-
-;; Local Variables:
-;; no-byte-compile: t
-;; End:
 
 ;;; comint-tests.el ends here

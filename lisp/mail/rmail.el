@@ -41,8 +41,6 @@
 (require 'rfc2047)
 (require 'auth-source)
 
-(require 'rmail-loaddefs)
-
 (declare-function compilation--message->loc "compile" (cl-x) t)
 (declare-function epa--find-coding-system-for-mime-charset "epa" (mime-charset))
 
@@ -317,20 +315,6 @@ Setting this variable has an effect only before reading a mail."
   :version "21.1")
 
 ;;;###autoload
-(define-obsolete-variable-alias 'rmail-dont-reply-to-names
-  'mail-dont-reply-to-names "24.1")
-
-;; Prior to 24.1, this used to contain "\\`info-".
-;;;###autoload
-(defvar rmail-default-dont-reply-to-names nil
-  "Regexp specifying part of the default value of `mail-dont-reply-to-names'.
-This is used when the user does not set `mail-dont-reply-to-names'
-explicitly.")
-;;;###autoload
-(make-obsolete-variable 'rmail-default-dont-reply-to-names
-                        'mail-dont-reply-to-names "24.1")
-
-;;;###autoload
 (defcustom rmail-ignored-headers
   (purecopy
   (concat "^via:\\|^mail-from:\\|^origin:\\|^references:\\|^sender:"
@@ -390,7 +374,7 @@ If nil, display all header fields except those matched by
 ;;;###autoload
 (defcustom rmail-retry-ignored-headers (purecopy "^x-authentication-warning:\\|^x-detected-operating-system:\\|^x-spam[-a-z]*:\\|content-type:\\|content-transfer-encoding:\\|mime-version:\\|message-id:")
   "Headers that should be stripped when retrying a failed message."
-  :type '(choice regexp (const nil :tag "None"))
+  :type '(choice regexp (const :value nil :tag "None"))
   :group 'rmail-headers
   :version "23.2")	   ; added x-detected-operating-system, x-spam
 
@@ -464,8 +448,8 @@ as argument, to ask the user that question."
 		 (const :tag "Confirm with y-or-n-p" y-or-n-p)
 		 (const :tag "Confirm with yes-or-no-p" yes-or-no-p))
   :version "21.1"
+  :risky t
   :group 'rmail-files)
-(put 'rmail-confirm-expunge 'risky-local-variable t)
 
 ;;;###autoload
 (defvar rmail-mode-hook nil
@@ -539,7 +523,7 @@ Examples:
 ;; Note: this is matched with case-fold-search bound to t.
 (defcustom rmail-re-abbrevs
   "\\(RE\\|رد\\|回复\\|回覆\\|SV\\|Antw\\|VS\\|REF\\|AW\\|ΑΠ\\|ΣΧΕΤ\\|השב\\|Vá\\|R\\|RIF\\|BLS\\|RES\\|Odp\\|YNT\\|ATB\\)"
-  "Regexp with localized 'Re:' abbreviations in various languages."
+  "Regexp with localized \"Re:\" abbreviations in various languages."
   :version "28.1"
   :type 'regexp)
 
@@ -1467,9 +1451,7 @@ If so restore the actual mbox message collection."
   (setq-local font-lock-defaults
               '(rmail-font-lock-keywords
                 t t nil nil
-                (font-lock-maximum-size . nil)
-                (font-lock-dont-widen . t)
-                (font-lock-inhibit-thing-lock . (lazy-lock-mode fast-lock-mode))))
+                (font-lock-dont-widen . t)))
   (setq-local require-final-newline nil)
   (setq-local version-control 'never)
   (add-hook 'kill-buffer-hook #'rmail-mode-kill-summary nil t)
@@ -4125,10 +4107,8 @@ typically for purposes of moderating a list."
   "A regexp that matches the separator before the text of a failed message.")
 
 (defvar mail-mime-unsent-header "^Content-Type: message/rfc822 *$"
- "A regexp that matches the header of a MIME body part with a failed message.")
+  "A regexp that matches the header of a MIME body part with a failed message.")
 
-;; This is a cut-down version of rmail-clear-headers from Emacs 22.
-;; It doesn't have the same functionality, hence the name change.
 (defun rmail-delete-headers (regexp)
   "Delete any mail headers matching REGEXP.
 The message should be narrowed to just the headers."
@@ -4136,10 +4116,6 @@ The message should be narrowed to just the headers."
     (goto-char (point-min))
     (while (re-search-forward regexp nil t)
       (beginning-of-line)
-      ;; This code from Emacs 22 doesn't seem right, since r-n-h is
-      ;; just for display.
-;;;      (if (looking-at rmail-nonignored-headers)
-;;;	  (forward-line 1)
       (delete-region (point)
 		     (save-excursion
 		       (if (re-search-forward "\n[^ \t]" nil t)
@@ -4497,10 +4473,7 @@ password."
                                    :max 1 :user user :host host
                                    :require '(:secret)))))
                 (if found
-                    (let ((secret (plist-get found :secret)))
-                      (if (functionp secret)
-                          (funcall secret)
-                        secret))
+                    (auth-info-password found)
                   (read-passwd (if imap
                                    "IMAP password: "
                                  "POP password: "))))))
@@ -4603,8 +4576,6 @@ Argument MIME is non-nil if this is a mime message."
           armor-end-regexp
           (buffer-substring armor-start (- (point-max) after-end)))))
 
-(declare-function rmail-mime-entity-truncated "rmailmm" (entity))
-
 ;; Should this have a key-binding, or be in a menu?
 ;; There doesn't really seem to be an appropriate menu.
 ;; Eg the edit command is not in a menu either.
@@ -4642,6 +4613,9 @@ Argument MIME is non-nil if this is a mime message."
 				       armor-start)
 		     "> ")
 	      (push (rmail-epa-decrypt-1 mime) decrypts))))
+
+      ;; Decode any base64-encoded mime sections.
+      (rmail-epa-decode)
 
       (when (and decrypts (rmail-buffers-swapped-p))
 	(when (y-or-n-p "Replace the original message? ")
@@ -4707,6 +4681,23 @@ Argument MIME is non-nil if this is a mime message."
       (unless decrypts
 	(error "Nothing to decrypt")))))
 
+;; Decode all base64-encoded mime sections, so that this change
+;; is made in the Rmail file, not just in the viewing buffer.
+(defun rmail-epa-decode ()
+  (save-excursion
+    (goto-char (point-min))
+    (while (re-search-forward "--------------[0-9a-zA-Z]+\n" nil t)
+      (let ((delim (concat (substring (match-string 0) 0 -1) "--\n")))
+        (when (looking-at "\
+Content-Type: text/[a-z]+; charset=UTF-8; format=flowed
+Content-Transfer-Encoding: base64\n")
+          (goto-char (match-end 0))
+          (let ((start (point))
+                (inhibit-read-only t))
+            (search-forward delim)
+            (forward-line -1)
+            (base64-decode-region start (point))
+            (forward-line 1)))))))
 
 ;;;;  Desktop support
 

@@ -90,7 +90,9 @@
 (require 'gud)
 (require 'cl-lib)
 (require 'cl-seq)
+(require 'bindat)
 (eval-when-compile (require 'pcase))
+(require 'subr-x)   ; `string-pad'
 
 (declare-function speedbar-change-initial-expansion-list
                   "speedbar" (new-default))
@@ -104,6 +106,7 @@
 ;; at toplevel, so the compiler doesn't know under which circumstances
 ;; they're defined.
 (declare-function gud-until  "gud" (arg))
+(declare-function gud-go     "gud" (arg))
 (declare-function gud-print  "gud" (arg))
 (declare-function gud-down   "gud" (arg))
 (declare-function gud-up     "gud" (arg))
@@ -124,9 +127,9 @@ Possible value: main, $rsp, x+3.")
   "Address of memory display.")
 (defvar-local gdb-memory-last-address nil
   "Last successfully accessed memory address.")
-(defvar	gdb-memory-next-page nil
+(defvar gdb-memory-next-page nil
   "Address of next memory page for program memory buffer.")
-(defvar	gdb-memory-prev-page nil
+(defvar gdb-memory-prev-page nil
   "Address of previous memory page for program memory buffer.")
 (defvar-local gdb--memory-display-warning nil
   "Display warning on memory header if t.
@@ -283,8 +286,8 @@ Possible values are:
   :type '(choice
           (const :tag "Always restore" t)
           (const :tag "Don't restore" nil)
-          (const :tag "Depends on `gdb-show-main'" 'if-gdb-show-main)
-          (const :tag "Depends on `gdb-many-windows'" 'if-gdb-many-windows))
+          (const :tag "Depends on `gdb-show-main'" if-gdb-show-main)
+          (const :tag "Depends on `gdb-many-windows'" if-gdb-many-windows))
   :group 'gdb
   :version "28.1")
 
@@ -682,7 +685,7 @@ Note that this variable only takes effect when variable
 Until there are such number of source windows on screen, GDB
 tries to open a new window when visiting a new source file; after
 that GDB starts to reuse existing source windows."
-  :type 'number
+  :type 'natnum
   :group 'gdb
   :version "28.1")
 
@@ -954,12 +957,16 @@ detailed description of this mode.
 			  (forward-char 2)
 			  (gud-call "-exec-until *%a" arg)))
 	   "\C-u" "Continue to current line or address.")
-  ;; TODO Why arg here?
   (gud-def
-   gud-go (gud-call (if gdb-active-process
-                        (gdb-gud-context-command "-exec-continue")
-                      "-exec-run") arg)
-   nil "Start or continue execution.")
+   gud-go (progn
+            (when arg
+              (gud-call (concat "-exec-arguments "
+                                (read-string "Arguments to exec-run: "))))
+            (gud-call
+             (if gdb-active-process
+                 (gdb-gud-context-command "-exec-continue")
+               "-exec-run")))
+   "C-v" "Start or continue execution.  Use a prefix to specify arguments.")
 
   ;; For debugging Emacs only.
   (gud-def gud-pp
@@ -1138,7 +1145,8 @@ no input, and GDB is waiting for input."
       (setq name (nth 1 (split-string define "[( ]")))
       (push (cons name define) gdb-define-alist))))
 
-(declare-function tooltip-show "tooltip" (text &optional use-echo-area))
+(declare-function tooltip-show "tooltip" (text &optional use-echo-area
+                                               text-face default-face))
 
 (defconst gdb--string-regexp (rx "\""
                                  (* (or (seq "\\" nonl)
@@ -1266,7 +1274,7 @@ Used by Speedbar."
   :version "22.1")
 
 (define-key gud-minor-mode-map "\C-c\C-w" 'gud-watch)
-(define-key global-map (vconcat gud-key-prefix "\C-w") 'gud-watch)
+(keymap-set gud-global-map "C-w" 'gud-watch)
 
 (declare-function tooltip-identifier-from-point "tooltip" (point))
 
@@ -1580,7 +1588,7 @@ Buffer mode and name are selected according to buffer type.
 
 If buffer has trigger associated with it in `gdb-buffer-rules',
 this trigger is subscribed to `gdb-buf-publisher' and called with
-'update argument."
+`update' argument."
   (or (gdb-get-buffer buffer-type thread)
       (let ((rules (assoc buffer-type gdb-buffer-rules))
             (new (generate-new-buffer "limbo")))
@@ -1612,6 +1620,7 @@ this trigger is subscribed to `gdb-buf-publisher' and called with
 ;; Used to display windows with thread-bound buffers
 (defmacro def-gdb-preempt-display-buffer (name buffer &optional doc
 					       split-horizontal)
+  (declare (indent defun))
   `(defun ,name (&optional thread)
      ,(when doc doc)
      (message "%s" thread)
@@ -2104,7 +2113,7 @@ is running."
            (not (null gdb-running-threads-count))
            (> gdb-running-threads-count 0))))
 
-;; GUD displays the selected GDB frame.  This might might not be the current
+;; GUD displays the selected GDB frame.  This might not be the current
 ;; GDB frame (after up, down etc).  If no GDB frame is visible but the last
 ;; visited breakpoint is, use that window.
 (defun gdb-display-source-buffer (buffer)
@@ -2503,9 +2512,8 @@ means to decode using the coding-system set for the GDB process."
   ;; Record transactions if logging is enabled.
   (when gdb-enable-debug
     (push (cons 'recv string) gdb-debug-log)
-    (if (and gdb-debug-log-max
-	     (> (length gdb-debug-log) gdb-debug-log-max))
-	(setcdr (nthcdr (1- gdb-debug-log-max) gdb-debug-log) nil)))
+    (when gdb-debug-log-max
+      (setq gdb-debug-log (ntake gdb-debug-log-max gdb-debug-log))))
 
   ;; Recall the left over gud-marker-acc from last time.
   (setq gud-marker-acc (concat gud-marker-acc string))
@@ -2935,7 +2943,7 @@ Return position where LINE begins."
        start-posn)))
 
 (defun gdb-pad-string (string padding)
-  (format (concat "%" (number-to-string padding) "s") string))
+  (string-pad string (abs padding) nil (natnump padding)))
 
 ;; gdb-table struct is a way to programmatically construct simple
 ;; tables. It help to reliably align columns of data in GDB buffers
@@ -2953,8 +2961,7 @@ When non-nil, PROPERTIES will be added to the whole row when
 calling `gdb-table-string'."
   (let ((rows (gdb-table-rows table))
         (row-properties (gdb-table-row-properties table))
-        (column-sizes (gdb-table-column-sizes table))
-        (right-align (gdb-table-right-align table)))
+        (column-sizes (gdb-table-column-sizes table)))
     (when (not column-sizes)
       (setf (gdb-table-column-sizes table)
             (make-list (length row) 0)))
@@ -2964,9 +2971,7 @@ calling `gdb-table-string'."
           (append row-properties (list properties)))
     (setf (gdb-table-column-sizes table)
           (cl-mapcar (lambda (x s)
-                         (let ((new-x
-                                (max (abs x) (string-width (or s "")))))
-                           (if right-align new-x (- new-x))))
+                       (max (abs x) (string-width (or s ""))))
                        (gdb-table-column-sizes table)
                        row))
     ;; Avoid trailing whitespace at eol
@@ -2977,13 +2982,16 @@ calling `gdb-table-string'."
   "Return TABLE as a string with columns separated with SEP."
   (let ((column-sizes (gdb-table-column-sizes table)))
     (mapconcat
-     'identity
+     #'identity
      (cl-mapcar
       (lambda (row properties)
-        (apply 'propertize
-               (mapconcat 'identity
-                          (cl-mapcar (lambda (s x) (gdb-pad-string s x))
-                                       row column-sizes)
+        (apply #'propertize
+               (mapconcat #'identity
+                          (cl-mapcar (lambda (s x)
+                                       (string-pad
+                                        s x nil
+                                        (not (gdb-table-right-align table))))
+                                     row column-sizes)
                           sep)
                properties))
       (gdb-table-rows table)
@@ -3012,6 +3020,7 @@ calling `gdb-current-context-command').
 Triggers defined by this command are meant to be used as a
 trigger argument when describing buffer types with
 `gdb-set-buffer-rules'."
+  (declare (indent defun))
   `(defun ,trigger-name (&optional signal)
      (when
          (or (not ,signal-list)
@@ -3032,6 +3041,7 @@ Erase current buffer and evaluate CUSTOM-DEFUN.
 Then call `gdb-update-buffer-name'.
 
 If NOPRESERVE is non-nil, window point is not restored after CUSTOM-DEFUN."
+  (declare (indent defun))
   `(defun ,handler-name ()
      (let* ((inhibit-read-only t)
             ,@(unless nopreserve
@@ -3055,6 +3065,7 @@ See `def-gdb-auto-update-trigger'.
 
 HANDLER-NAME handler uses customization of CUSTOM-DEFUN.
 See `def-gdb-auto-update-handler'."
+  (declare (indent defun))
   `(progn
      (def-gdb-auto-update-trigger ,trigger-name
        ,gdb-command
@@ -3489,6 +3500,7 @@ corresponding to the mode line clicked."
 CUSTOM-DEFUN may use locally bound `thread' variable, which will
 be the value of `gdb-thread' property of the current line.
 If `gdb-thread' is nil, error is signaled."
+  (declare (indent defun))
   `(defun ,name (&optional event)
      ,(when doc doc)
      (interactive (list last-input-event))
@@ -3504,6 +3516,7 @@ If `gdb-thread' is nil, error is signaled."
                                                      &optional doc)
   "Define a NAME which will call BUFFER-COMMAND with id of thread
 on the current line."
+  (declare (indent defun))
   `(def-gdb-thread-buffer-command ,name
      (,buffer-command (gdb-mi--field thread 'id))
      ,doc))
@@ -3559,6 +3572,7 @@ on the current line."
   "Define a NAME which will execute GUD-COMMAND with
 `gdb-thread-number' locally bound to id of thread on the current
 line."
+  (declare (indent defun))
   `(def-gdb-thread-buffer-command ,name
      (if gdb-non-stop
          (let ((gdb-thread-number (gdb-mi--field thread 'id))
@@ -3674,10 +3688,11 @@ in `gdb-memory-format'."
           (dolist (row memory)
             (insert (concat (gdb-mi--field row 'addr) ":"))
             (dolist (column (gdb-mi--field row 'data))
-              (insert (gdb-pad-string column
-                                      (+ 2 (gdb-memory-column-width
-                                            gdb-memory-unit
-                                            gdb-memory-format)))))
+              (insert (string-pad column
+                                  (+ 2 (gdb-memory-column-width
+                                        gdb-memory-unit
+                                        gdb-memory-format))
+                                  nil t)))
             (newline)))
       ;; Show last page instead of empty buffer when out of bounds
       (when gdb-memory-last-address
@@ -3727,6 +3742,7 @@ in `gdb-memory-format'."
 
 (defmacro def-gdb-set-positive-number (name variable echo-string &optional doc)
   "Define a function NAME which reads new VAR value from minibuffer."
+  (declare (indent defun))
   `(defun ,name (event)
      ,(when doc doc)
      (interactive "e")
@@ -3755,6 +3771,7 @@ in `gdb-memory-format'."
   "Define a function NAME to switch memory buffer to use FORMAT.
 
 DOC is an optional documentation string."
+  (declare (indent defun))
   `(defun ,name () ,(when doc doc)
      (interactive)
      (customize-set-variable 'gdb-memory-format ,format)
@@ -3824,6 +3841,7 @@ DOC is an optional documentation string."
   "Define a function NAME to switch memory unit size to UNIT-SIZE.
 
 DOC is an optional documentation string."
+  (declare (indent defun))
   `(defun ,name () ,(when doc doc)
      (interactive)
      (customize-set-variable 'gdb-memory-unit ,unit-size)
@@ -3848,6 +3866,7 @@ The defined function switches Memory buffer to show address
 stored in ADDRESS-VAR variable.
 
 DOC is an optional documentation string."
+  (declare (indent defun))
   `(defun ,name
      ,(when doc doc)
      (interactive)
@@ -4014,11 +4033,12 @@ DOC is an optional documentation string."
          (file (gdb-mi--field frame 'fullname))
          (line (gdb-mi--field frame 'line)))
     (if file
-      (format "-data-disassemble -f %s -l %s -n -1 -- 0" file line)
-    ;; If we're unable to get a file name / line for $PC, simply
-    ;; follow $PC, disassembling the next 10 (x ~15 (on IA) ==
-    ;; 150 bytes) instructions.
-    "-data-disassemble -s $pc -e \"$pc + 150\" -- 0"))
+        (format "-data-disassemble -f %s -l %s -n -1 -- 0"
+                (file-local-name file) line)
+      ;; If we're unable to get a file name / line for $PC, simply
+      ;; follow $PC, disassembling the next 10 (x ~15 (on IA) ==
+      ;; 150 bytes) instructions.
+      "-data-disassemble -s $pc -e \"$pc + 150\" -- 0"))
   gdb-disassembly-handler
   ;; We update disassembly only after we have actual frame information
   ;; about all threads, so no there's `update' signal in this list
@@ -4293,7 +4313,7 @@ member."
 ;; uses "-stack-list-locals --simple-values". Needs GDB 6.1 onwards.
 (def-gdb-trigger-and-handler
   gdb-invalidate-locals
-  (concat (gdb-current-context-command "-stack-list-locals")
+  (concat (gdb-current-context-command "-stack-list-variables")
           " --simple-values")
   gdb-locals-handler gdb-locals-handler-custom
   '(start update))
@@ -4303,6 +4323,48 @@ member."
  'gdb-locals-buffer-name
  'gdb-locals-mode
  'gdb-invalidate-locals)
+
+
+;; Retrieve the values of all variables before invalidating locals.
+(def-gdb-trigger-and-handler
+  gdb-locals-values
+  (concat (gdb-current-context-command "-stack-list-variables")
+          " --all-values")
+  gdb-locals-values-handler gdb-locals-values-handler-custom
+  '(start update))
+
+(gdb-set-buffer-rules
+ 'gdb-locals-values-buffer
+ 'gdb-locals-values-buffer-name
+ 'gdb-locals-mode
+ 'gdb-locals-values)
+
+(defun gdb-locals-values-buffer-name ()
+  (gdb-current-context-buffer-name
+   (concat "local values of " (gdb-get-target-string))))
+
+(defcustom gdb-locals-simple-values-only nil
+  "Only display simple values in the Locals buffer."
+  :type 'boolean
+  :group 'gud
+  :version "29.1")
+
+(defcustom gdb-locals-value-limit 100
+  "Maximum length the value of a local variable is allowed to be."
+  :type 'integer
+  :group 'gud
+  :version "29.1")
+
+(defvar gdb-locals-values-table (make-hash-table :test #'equal)
+  "Mapping of local variable names to a string with their value.")
+
+(defun gdb-locals-values-handler-custom ()
+  "Store the values of local variables in `gdb-locals-value-map'."
+  (let ((locals-list (bindat-get-field (gdb-mi--partial-output) 'variables)))
+    (dolist (local locals-list)
+      (let ((name (bindat-get-field local 'name))
+            (value (bindat-get-field local 'value)))
+        (puthash name value gdb-locals-values-table)))))
 
 (defvar gdb-locals-watch-map
   (let ((map (make-sparse-keymap)))
@@ -4320,6 +4382,15 @@ member."
     map)
   "Keymap to edit value of a simple data type local variable.")
 
+(defun gdb-locals-value-filter (value)
+  "Filter function for the local variable VALUE."
+  (let* ((no-nl (replace-regexp-in-string "\n" " " value))
+         (str (replace-regexp-in-string "[[:space:]]+" " " no-nl))
+         (limit gdb-locals-value-limit))
+    (if (>= (length str) limit)
+        (concat (substring str 0 limit) "...")
+      str)))
+
 (defun gdb-edit-locals-value (&optional event)
   "Assign a value to a variable displayed in the locals buffer."
   (interactive (list last-input-event))
@@ -4332,17 +4403,22 @@ member."
       (gud-basic-call
        (concat  "-gdb-set variable " var " = " value)))))
 
-;; Don't display values of arrays or structures.
-;; These can be expanded using gud-watch.
+;; Complex data types are looked up in `gdb-locals-values-table'.
 (defun gdb-locals-handler-custom ()
-  (let ((locals-list (gdb-mi--field (gdb-mi--partial-output) 'locals))
+  "Handler to rebuild the local variables table buffer."
+  (let ((locals-list (bindat-get-field (gdb-mi--partial-output) 'variables))
         (table (make-gdb-table)))
     (dolist (local locals-list)
       (let ((name (gdb-mi--field local 'name))
             (value (gdb-mi--field local 'value))
             (type (gdb-mi--field local 'type)))
         (when (not value)
-          (setq value "<complex data type>"))
+          (setq value
+                (if gdb-locals-simple-values-only
+                    "<complex data type>"
+                  (gethash name gdb-locals-values-table "<unavailable>"))))
+        (setq value (gdb-locals-value-filter value))
+
         (if (or (not value)
                 (string-match "0x" value))
             (add-text-properties 0 (length name)
@@ -4865,6 +4941,8 @@ file\" where the GDB session starts (see `gdb-main-file')."
          (expand-file-name gdb-default-window-configuration-file
                            gdb-window-configuration-directory)))
     ;; Create default layout as before.
+    ;; Make sure that local values are updated before locals.
+    (gdb-get-buffer-create 'gdb-locals-values-buffer)
     (gdb-get-buffer-create 'gdb-locals-buffer)
     (gdb-get-buffer-create 'gdb-stack-buffer)
     (gdb-get-buffer-create 'gdb-breakpoints-buffer)

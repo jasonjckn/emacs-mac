@@ -34,6 +34,8 @@
 ;; menu).  To enable it at startup, put (semantic-mode 1) in your init
 ;; file.
 
+;;; Code:
+
 (require 'cedet)
 (require 'semantic/tag)
 (require 'semantic/lex)
@@ -41,6 +43,7 @@
 
 (defvar semantic-version "2.2"
   "Current version of Semantic.")
+(make-obsolete-variable 'semantic-version 'emacs-version "29.1")
 
 (declare-function inversion-test "inversion")
 (declare-function semanticdb-load-ebrowse-caches "semantic/db-ebrowse")
@@ -72,9 +75,6 @@ introduced."
   :group 'semantic)
 
 (require 'semantic/fw)
-
-;;; Code:
-;;
 
 ;;; Variables and Configuration
 ;;
@@ -497,8 +497,8 @@ is requested."
 
 (defvar semantic-working-type 'percent
   "The type of working message to use when parsing.
-'percent means we are doing a linear parse through the buffer.
-'dynamic means we are reparsing specific tags.")
+`percent' means we are doing a linear parse through the buffer.
+`dynamic' means we are reparsing specific tags.")
 
 (defvar semantic-minimum-working-buffer-size (* 1024 5)
   "The minimum size of a buffer before working messages are displayed.

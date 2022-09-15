@@ -19,7 +19,202 @@
 
 ;;; Code:
 
+(require 'ert)
+(require 'ert-x)
 (require 'cl-lib)
+(require 'let-alist)
+
+(defun overlay-tests-start-recording-modification-hooks (overlay)
+  "Start recording modification hooks on OVERLAY.
+
+Always overwrites the `insert-in-front-hooks',
+`modification-hooks' and `insert-behind-hooks' properties.  Any
+recorded history from a previous call is erased.
+
+The history is stored in a property on the overlay itself.  Call
+`overlay-tests-get-recorded-modification-hooks' to retrieve the
+recorded calls conveniently."
+  (dolist (hooks-property '(insert-in-front-hooks
+                            modification-hooks
+                            insert-behind-hooks))
+    (overlay-put
+     overlay
+     hooks-property
+     (list (lambda (ov &rest args)
+             (message "  %S called on %S with args %S" hooks-property ov args)
+             (should inhibit-modification-hooks)
+             (should (eq ov overlay))
+             (push (list hooks-property args)
+                   (overlay-get overlay
+                                'recorded-modification-hook-calls)))))
+    (overlay-put overlay 'recorded-modification-hook-calls nil)))
+
+(defun overlay-tests-get-recorded-modification-hooks (overlay)
+  "Extract the recorded calls made to modification hooks on OVERLAY.
+
+Must be preceded by a call to
+`overlay-tests-start-recording-modification-hooks' on OVERLAY.
+
+Returns a list.  Each element of the list represents a recorded
+call to a particular modification hook.
+
+Each call is itself a sub-list where the first element is a
+symbol matching the modification hook property (one of
+`insert-in-front-hooks', `modification-hooks' or
+`insert-behind-hooks') and the second element is the list of
+arguments passed to the hook.  The first hook argument, the
+overlay itself, is omitted to make test result verification
+easier."
+  (reverse (overlay-get overlay
+                        'recorded-modification-hook-calls)))
+
+(ert-deftest overlay-modification-hooks ()
+  "Test the basic functionality of overlay modification hooks.
+
+This exercises hooks registered on the `insert-in-front-hooks',
+`modification-hooks' and `insert-behind-hooks' overlay
+properties."
+    ;; This is a data driven test loop.  Each test case is described
+    ;; by an alist.  The test loop initializes a new temporary buffer
+    ;; for each case, creates an overlay, registers modification hooks
+    ;; on the overlay, modifies the buffer, and then verifies which
+    ;; modification hooks (if any) were called for the overlay, as
+    ;; well as which arguments were passed to the hooks.
+    ;;
+    ;; The following keys are available in the alist:
+    ;;
+    ;; `buffer-text': the initial buffer text of the temporary buffer.
+    ;; Defaults to "1234".
+    ;;
+    ;; `overlay-beg' and `overlay-end': the begin and end positions of
+    ;; the overlay under test.  Defaults to 2 and 4 respectively.
+    ;;
+    ;; `insert-at': move to the given position and insert the string
+    ;; "x" into the test case's buffer.
+    ;;
+    ;; `replace': replace the first occurrence of the given string in
+    ;; the test case's buffer with "x".  The test will fail if the
+    ;; string is not found.
+    ;;
+    ;; `expected-calls': a description of the expected buffer
+    ;; modification hooks.  See
+    ;; `overlay-tests-get-recorded-modification-hooks' for the format.
+    ;; May be omitted, in which case the test will insist that no
+    ;; modification hooks are called.
+    ;;
+    ;; The test will fail itself in the degenerate case where no
+    ;; buffer modifications are requested.
+    (dolist (test-case
+             '(
+               ;; Remember that the default buffer text is "1234" and
+               ;; the default overlay begins at position 2 and ends at
+               ;; position 4.  Most of the test cases below assume
+               ;; this.
+
+               ;; TODO: (info "(elisp) Special Properties") says this
+               ;; about `modification-hooks': "Furthermore, insertion
+               ;; will not modify any existing character, so this hook
+               ;; will only be run when removing some characters,
+               ;; replacing them with others, or changing their
+               ;; text-properties."  So, why are modification-hooks
+               ;; being called when inserting at position 3 below?
+               ((insert-at . 1))
+               ((insert-at . 2)
+                (expected-calls . ((insert-in-front-hooks (nil 2 2))
+                                   (insert-in-front-hooks (t 2 3 0)))))
+               ((insert-at . 3)
+                (expected-calls . ((modification-hooks (nil 3 3))
+                                   (modification-hooks (t 3 4 0)))))
+               ((insert-at . 4)
+                (expected-calls . ((insert-behind-hooks (nil 4 4))
+                                   (insert-behind-hooks (t 4 5 0)))))
+               ((insert-at . 5))
+
+               ;; Replacing text never calls `insert-in-front-hooks'
+               ;; or `insert-behind-hooks'.  It calls
+               ;; `modification-hooks' if the overlay covers any text
+               ;; that has changed.
+               ((replace . "1"))
+               ((replace . "2")
+                (expected-calls . ((modification-hooks (nil 2 3))
+                                   (modification-hooks (t 2 3 1)))))
+               ((replace . "3")
+                (expected-calls . ((modification-hooks (nil 3 4))
+                                   (modification-hooks (t 3 4 1)))))
+               ((replace . "4"))
+               ((replace . "12")
+                (expected-calls . ((modification-hooks (nil 1 3))
+                                   (modification-hooks (t 1 2 2)))))
+               ((replace . "23")
+                (expected-calls . ((modification-hooks (nil 2 4))
+                                   (modification-hooks (t 2 3 2)))))
+               ((replace . "34")
+                (expected-calls . ((modification-hooks (nil 3 5))
+                                   (modification-hooks (t 3 4 2)))))
+               ((replace . "123")
+                (expected-calls . ((modification-hooks (nil 1 4))
+                                   (modification-hooks (t 1 2 3)))))
+               ((replace . "234")
+                (expected-calls . ((modification-hooks (nil 2 5))
+                                   (modification-hooks (t 2 3 3)))))
+               ((replace . "1234")
+                (expected-calls . ((modification-hooks (nil 1 5))
+                                   (modification-hooks (t 1 2 4)))))
+
+               ;; Inserting at the position of a zero-length overlay
+               ;; calls both `insert-in-front-hooks' and
+               ;; `insert-behind-hooks'.
+               ((buffer-text . "") (overlay-beg . 1) (overlay-end . 1)
+                (insert-at . 1)
+                (expected-calls . ((insert-in-front-hooks
+                                    (nil 1 1))
+                                   (insert-behind-hooks
+                                    (nil 1 1))
+                                   (insert-in-front-hooks
+                                    (t 1 2 0))
+                                   (insert-behind-hooks
+                                    (t 1 2 0)))))))
+      (message "BEGIN overlay-modification-hooks test-case %S" test-case)
+
+      ;; All three hooks ignore the overlay's `front-advance' and
+      ;; `rear-advance' option, so test both ways while expecting the same
+      ;; result.
+      (dolist (advance '(nil t))
+        (message "  advance is %S" advance)
+        (let-alist test-case
+          (with-temp-buffer
+            ;; Set up the temporary buffer and overlay as specified by
+            ;; the test case.
+            (insert (or .buffer-text "1234"))
+            (let ((overlay (make-overlay
+                            (or .overlay-beg 2)
+                            (or .overlay-end 4)
+                            nil
+                            advance advance)))
+              (message "  (buffer-string) is %S" (buffer-string))
+              (message "  overlay is %S" overlay)
+              (overlay-tests-start-recording-modification-hooks overlay)
+
+              ;; Modify the buffer, possibly inducing calls to the
+              ;; overlay's modification hooks.
+              (should (or .insert-at .replace))
+              (when .insert-at
+                (goto-char .insert-at)
+                (insert "x")
+                (message "  inserted \"x\" at %S, buffer-string now %S"
+                         .insert-at (buffer-string)))
+              (when .replace
+                (goto-char (point-min))
+                (search-forward .replace)
+                (replace-match "x")
+                (message "  replaced %S with \"x\"" .replace))
+
+              ;; Verify that the expected and actual modification hook
+              ;; calls match.
+              (should (equal
+                       .expected-calls
+                       (overlay-tests-get-recorded-modification-hooks
+                        overlay)))))))))
 
 (ert-deftest overlay-modification-hooks-message-other-buf ()
   "Test for bug#21824.
@@ -99,7 +294,7 @@ with parameters from the *Messages* buffer modification."
 ;; | Overlay test setup
 ;; +==========================================================================+
 
-(eval-when-compile
+(eval-and-compile
   (defun buffer-tests--make-test-name (fn x y)
     (intern (format "buffer-tests--%s-%s-%s" fn x y))))
 
@@ -145,7 +340,7 @@ with parameters from the *Messages* buffer modification."
 
 (defmacro deftest-overlayp-1 (id arg-expr should-expr)
   (declare (indent 1))
-  `(ert-deftest ,(buffer-tests--make-test-name 'overlay-buffer 1 id) ()
+  `(ert-deftest ,(buffer-tests--make-test-name 'overlayp 1 id) ()
      (with-temp-buffer
        (should (equal ,should-expr (overlayp ,arg-expr))))))
 
@@ -434,14 +629,14 @@ with parameters from the *Messages* buffer modification."
 (deftest-next-overlay-change-1 I 10 (point-max) (10 10))
 (deftest-next-overlay-change-1 J 20 (point-max) (10 10))
 ;; 2 non-empty, non-intersecting
-(deftest-next-overlay-change-1 D 10 20 (20 30) (40 50))
-(deftest-next-overlay-change-1 E 35 40 (20 30) (40 50))
-(deftest-next-overlay-change-1 F 60 (point-max) (20 30) (40 50))
-(deftest-next-overlay-change-1 G 30 40 (20 30) (40 50))
-(deftest-next-overlay-change-1 H 50 (point-max) (20 30) (40 50))
+(deftest-next-overlay-change-1 D2 10 20 (20 30) (40 50))
+(deftest-next-overlay-change-1 E2 35 40 (20 30) (40 50))
+(deftest-next-overlay-change-1 F2 60 (point-max) (20 30) (40 50))
+(deftest-next-overlay-change-1 G2 30 40 (20 30) (40 50))
+(deftest-next-overlay-change-1 H2 50 (point-max) (20 30) (40 50))
 ;; 2 non-empty, intersecting
-(deftest-next-overlay-change-1 I 10 20 (20 30) (25 35))
-(deftest-next-overlay-change-1 J 20 25 (20 30) (25 35))
+(deftest-next-overlay-change-1 I2 10 20 (20 30) (25 35))
+(deftest-next-overlay-change-1 J2 20 25 (20 30) (25 35))
 (deftest-next-overlay-change-1 K 23 25 (20 30) (25 35))
 (deftest-next-overlay-change-1 L 25 30 (20 30) (25 35))
 (deftest-next-overlay-change-1 M 28 30 (20 30) (25 35))
@@ -471,11 +666,11 @@ with parameters from the *Messages* buffer modification."
 (deftest-next-overlay-change-1 k 30 (point-max) (20 20) (20 30))
 (deftest-next-overlay-change-1 l 40 (point-max) (20 20) (20 30))
 ;; 1 empty, 1 non-empty, intersecting at end
-(deftest-next-overlay-change-1 h 10 20 (30 30) (20 30))
-(deftest-next-overlay-change-1 i 20 30 (30 30) (20 30))
-(deftest-next-overlay-change-1 j 25 30 (30 30) (20 30))
-(deftest-next-overlay-change-1 k 30 (point-max) (20 20) (20 30))
-(deftest-next-overlay-change-1 l 40 (point-max) (20 20) (20 30))
+(deftest-next-overlay-change-1 h2 10 20 (30 30) (20 30))
+(deftest-next-overlay-change-1 i2 20 30 (30 30) (20 30))
+(deftest-next-overlay-change-1 j2 25 30 (30 30) (20 30))
+(deftest-next-overlay-change-1 k2 30 (point-max) (20 20) (20 30))
+(deftest-next-overlay-change-1 l2 40 (point-max) (20 20) (20 30))
 ;; 1 empty, 1 non-empty, intersecting in the middle
 (deftest-next-overlay-change-1 m 10 20 (25 25) (20 30))
 (deftest-next-overlay-change-1 n 20 25 (25 25) (20 30))
@@ -522,14 +717,14 @@ with parameters from the *Messages* buffer modification."
 (deftest-previous-overlay-change-1 I 10 1 (10 10))
 (deftest-previous-overlay-change-1 J 20 10 (10 10))
 ;; 2 non-empty, non-intersecting
-(deftest-previous-overlay-change-1 D 10 1 (20 30) (40 50))
-(deftest-previous-overlay-change-1 E 35 30 (20 30) (40 50))
-(deftest-previous-overlay-change-1 F 60 50 (20 30) (40 50))
-(deftest-previous-overlay-change-1 G 30 20 (20 30) (40 50))
-(deftest-previous-overlay-change-1 H 50 40 (20 30) (40 50))
+(deftest-previous-overlay-change-1 D2 10 1 (20 30) (40 50))
+(deftest-previous-overlay-change-1 E2 35 30 (20 30) (40 50))
+(deftest-previous-overlay-change-1 F2 60 50 (20 30) (40 50))
+(deftest-previous-overlay-change-1 G2 30 20 (20 30) (40 50))
+(deftest-previous-overlay-change-1 H2 50 40 (20 30) (40 50))
 ;; 2 non-empty, intersecting
-(deftest-previous-overlay-change-1 I 10 1 (20 30) (25 35))
-(deftest-previous-overlay-change-1 J 20 1 (20 30) (25 35))
+(deftest-previous-overlay-change-1 I2 10 1 (20 30) (25 35))
+(deftest-previous-overlay-change-1 J2 20 1 (20 30) (25 35))
 (deftest-previous-overlay-change-1 K 23 20 (20 30) (25 35))
 (deftest-previous-overlay-change-1 L 25 20 (20 30) (25 35))
 (deftest-previous-overlay-change-1 M 28 25 (20 30) (25 35))
@@ -619,28 +814,28 @@ with parameters from the *Messages* buffer modification."
 (deftest-overlays-at-1 P 50 () (a 10 20) (b 30 40))
 
 ;; 2 non-empty overlays intersecting
-(deftest-overlays-at-1 G 1 () (a 10 30) (b 20 40))
-(deftest-overlays-at-1 H 10 (a) (a 10 30) (b 20 40))
-(deftest-overlays-at-1 I 15 (a) (a 10 30) (b 20 40))
-(deftest-overlays-at-1 K 20 (a b) (a 10 30) (b 20 40))
-(deftest-overlays-at-1 L 25 (a b) (a 10 30) (b 20 40))
-(deftest-overlays-at-1 M 30 (b) (a 10 30) (b 20 40))
-(deftest-overlays-at-1 N 35 (b) (a 10 30) (b 20 40))
-(deftest-overlays-at-1 O 40 () (a 10 30) (b 20 40))
-(deftest-overlays-at-1 P 50 () (a 10 30) (b 20 40))
+(deftest-overlays-at-1 G2 1 () (a 10 30) (b 20 40))
+(deftest-overlays-at-1 H2 10 (a) (a 10 30) (b 20 40))
+(deftest-overlays-at-1 I2 15 (a) (a 10 30) (b 20 40))
+(deftest-overlays-at-1 K2 20 (a b) (a 10 30) (b 20 40))
+(deftest-overlays-at-1 L2 25 (a b) (a 10 30) (b 20 40))
+(deftest-overlays-at-1 M2 30 (b) (a 10 30) (b 20 40))
+(deftest-overlays-at-1 N2 35 (b) (a 10 30) (b 20 40))
+(deftest-overlays-at-1 O2 40 () (a 10 30) (b 20 40))
+(deftest-overlays-at-1 P2 50 () (a 10 30) (b 20 40))
 
 ;; 2 non-empty overlays continuous
-(deftest-overlays-at-1 G 1 () (a 10 20) (b 20 30))
-(deftest-overlays-at-1 H 10 (a) (a 10 20) (b 20 30))
-(deftest-overlays-at-1 I 15 (a) (a 10 20) (b 20 30))
-(deftest-overlays-at-1 K 20 (b) (a 10 20) (b 20 30))
-(deftest-overlays-at-1 L 25 (b) (a 10 20) (b 20 30))
-(deftest-overlays-at-1 M 30 () (a 10 20) (b 20 30))
+(deftest-overlays-at-1 G3 1 () (a 10 20) (b 20 30))
+(deftest-overlays-at-1 H3 10 (a) (a 10 20) (b 20 30))
+(deftest-overlays-at-1 I3 15 (a) (a 10 20) (b 20 30))
+(deftest-overlays-at-1 K3 20 (b) (a 10 20) (b 20 30))
+(deftest-overlays-at-1 L3 25 (b) (a 10 20) (b 20 30))
+(deftest-overlays-at-1 M3 30 () (a 10 20) (b 20 30))
 
 ;; overlays-at never returns empty overlays.
-(deftest-overlays-at-1 N 1 (a) (a 1 60) (c 1 1) (b 30 30) (d 50 50))
-(deftest-overlays-at-1 O 20 (a) (a 1 60) (c 1 1) (b 30 30) (d 50 50))
-(deftest-overlays-at-1 P 30 (a) (a 1 60) (c 1 1) (b 30 30) (d 50 50))
+(deftest-overlays-at-1 N3 1 (a) (a 1 60) (c 1 1) (b 30 30) (d 50 50))
+(deftest-overlays-at-1 O3 20 (a) (a 1 60) (c 1 1) (b 30 30) (d 50 50))
+(deftest-overlays-at-1 P3 30 (a) (a 1 60) (c 1 1) (b 30 30) (d 50 50))
 (deftest-overlays-at-1 Q 40 (a) (a 1 60) (c 1 1) (b 30 30) (d 50 50))
 (deftest-overlays-at-1 R 50 (a) (a 1 60) (c 1 1) (b 30 30) (d 50 50))
 (deftest-overlays-at-1 S 60 () (a 1 60) (c 1 1) (b 30 30) (d 50 50))
@@ -1107,7 +1302,7 @@ with parameters from the *Messages* buffer modification."
           (should (eq ov (car (overlays-in 1 1)))))))))
 
 ;; properties
-(ert-deftest test-buffer-swap-text-1 ()
+(ert-deftest test-buffer-swap-text-2 ()
   (buffer-tests--with-temp-buffers (buffer other)
     (with-current-buffer other
       (overlay-put (make-overlay 1 1) 'buffer 'other))
@@ -1421,66 +1616,136 @@ with parameters from the *Messages* buffer modification."
     (should (= (length (overlays-in (point-min) (point-max))) 0))))
 
 (ert-deftest test-kill-buffer-auto-save-default ()
-  (let ((file (make-temp-file "ert"))
-        auto-save)
-    (should (file-exists-p file))
-    ;; Always answer yes.
-    (cl-letf (((symbol-function #'yes-or-no-p) (lambda (_) t)))
-      (unwind-protect
-          (progn
-            (find-file file)
-            (auto-save-mode t)
-            (insert "foo\n")
-            (should buffer-auto-save-file-name)
-            (setq auto-save buffer-auto-save-file-name)
-            (do-auto-save)
-            (should (file-exists-p auto-save))
-            (kill-buffer (current-buffer))
-            (should (file-exists-p auto-save)))
-        (ignore-errors (delete-file file))
-        (when auto-save
-          (ignore-errors (delete-file auto-save)))))))
+  (ert-with-temp-file file
+    (let (auto-save)
+      ;; Always answer yes.
+      (cl-letf (((symbol-function #'yes-or-no-p) (lambda (_) t)))
+        (unwind-protect
+            (progn
+              (find-file file)
+              (auto-save-mode t)
+              (insert "foo\n")
+              (should buffer-auto-save-file-name)
+              (setq auto-save buffer-auto-save-file-name)
+              (do-auto-save)
+              (should (file-exists-p auto-save))
+              (kill-buffer (current-buffer))
+              (should (file-exists-p auto-save)))
+          (when auto-save
+            (ignore-errors (delete-file auto-save))))))))
 
 (ert-deftest test-kill-buffer-auto-save-delete ()
-  (let ((file (make-temp-file "ert"))
-        auto-save)
-    (should (file-exists-p file))
-    (setq kill-buffer-delete-auto-save-files t)
-    ;; Always answer yes.
-    (cl-letf (((symbol-function #'yes-or-no-p) (lambda (_) t)))
-      (unwind-protect
-          (progn
-            (find-file file)
-            (auto-save-mode t)
-            (insert "foo\n")
-            (should buffer-auto-save-file-name)
-            (setq auto-save buffer-auto-save-file-name)
-            (do-auto-save)
-            (should (file-exists-p auto-save))
-            ;; This should delete the auto-save file.
-            (kill-buffer (current-buffer))
-            (should-not (file-exists-p auto-save)))
-        (ignore-errors (delete-file file))
-        (when auto-save
-          (ignore-errors (delete-file auto-save)))))
-    ;; Answer no to deletion.
-    (cl-letf (((symbol-function #'yes-or-no-p)
-               (lambda (prompt)
-                 (not (string-search "Delete auto-save file" prompt)))))
-      (unwind-protect
-          (progn
-            (find-file file)
-            (auto-save-mode t)
-            (insert "foo\n")
-            (should buffer-auto-save-file-name)
-            (setq auto-save buffer-auto-save-file-name)
-            (do-auto-save)
-            (should (file-exists-p auto-save))
-            ;; This should not delete the auto-save file.
-            (kill-buffer (current-buffer))
-            (should (file-exists-p auto-save)))
-        (ignore-errors (delete-file file))
-        (when auto-save
-          (ignore-errors (delete-file auto-save)))))))
+  (ert-with-temp-file file
+    (let (auto-save)
+      (should (file-exists-p file))
+      (setq kill-buffer-delete-auto-save-files t)
+      ;; Always answer yes.
+      (cl-letf (((symbol-function #'yes-or-no-p) (lambda (_) t)))
+        (unwind-protect
+            (progn
+              (find-file file)
+              (auto-save-mode t)
+              (insert "foo\n")
+              (should buffer-auto-save-file-name)
+              (setq auto-save buffer-auto-save-file-name)
+              (do-auto-save)
+              (should (file-exists-p auto-save))
+              ;; This should delete the auto-save file.
+              (kill-buffer (current-buffer))
+              (should-not (file-exists-p auto-save)))
+          (ignore-errors (delete-file file))
+          (when auto-save
+            (ignore-errors (delete-file auto-save)))))
+      ;; Answer no to deletion.
+      (cl-letf (((symbol-function #'yes-or-no-p)
+                 (lambda (prompt)
+                   (not (string-search "Delete auto-save file" prompt)))))
+        (unwind-protect
+            (progn
+              (find-file file)
+              (auto-save-mode t)
+              (insert "foo\n")
+              (should buffer-auto-save-file-name)
+              (setq auto-save buffer-auto-save-file-name)
+              (do-auto-save)
+              (should (file-exists-p auto-save))
+              ;; This should not delete the auto-save file.
+              (kill-buffer (current-buffer))
+              (should (file-exists-p auto-save)))
+          (when auto-save
+            (ignore-errors (delete-file auto-save))))))))
+
+(ert-deftest test-buffer-modifications ()
+  (ert-with-temp-file file
+    (with-current-buffer (find-file file)
+      (auto-save-mode 1)
+      (should-not (buffer-modified-p))
+      (insert "foo")
+      (should (buffer-modified-p))
+      (should-not (eq (buffer-modified-p) 'autosaved))
+      (do-auto-save nil t)
+      (should (eq (buffer-modified-p) 'autosaved))
+      (with-silent-modifications
+        (put-text-property 1 3 'face 'bold))
+      (should (eq (buffer-modified-p) 'autosaved))
+      (save-buffer)
+      (should-not (buffer-modified-p))
+      (with-silent-modifications
+        (put-text-property 1 3 'face 'italic))
+      (should-not (buffer-modified-p)))))
+
+(ert-deftest test-restore-buffer-modified-p ()
+  (ert-with-temp-file file
+    ;; This avoids the annoying "foo and bar are the same file" on
+    ;; MS-Windows.
+    (setq file (file-truename file))
+    (with-current-buffer (find-file file)
+      (auto-save-mode 1)
+      (should-not (eq (buffer-modified-p) t))
+      (insert "foo")
+      (should (buffer-modified-p))
+      (restore-buffer-modified-p nil)
+      (should-not (buffer-modified-p))
+      (insert "bar")
+      (do-auto-save nil t)
+      (should (eq (buffer-modified-p) 'autosaved))
+      (insert "zot")
+      (restore-buffer-modified-p 'autosaved)
+      (should (eq (buffer-modified-p) 'autosaved))
+
+      ;; Clean up.
+      (when (file-exists-p buffer-auto-save-file-name)
+        (delete-file buffer-auto-save-file-name))))
+
+  (ert-with-temp-file file
+    (setq file (file-truename file))
+    (with-current-buffer (find-file file)
+      (auto-save-mode 1)
+      (should-not (eq (buffer-modified-p) t))
+      (insert "foo")
+      (should (buffer-modified-p))
+      (should-not (eq (buffer-modified-p) 'autosaved))
+      (restore-buffer-modified-p 'autosaved)
+      (should (eq (buffer-modified-p) 'autosaved)))))
+
+(ert-deftest test-buffer-chars-modified-ticks ()
+  "Test `buffer-chars-modified-tick'."
+  (setq temporary-file-directory (file-truename temporary-file-directory))
+  (let ((text "foobar")
+        f1 f2)
+    (unwind-protect
+        (progn
+          (setq f1 (make-temp-file "buf-modiff-tests")
+                f2 (make-temp-file "buf-modiff-tests"))
+          (with-current-buffer (find-file f1)
+            (should (= (buffer-chars-modified-tick) 1))
+            (should (= (buffer-chars-modified-tick) (buffer-modified-tick)))
+            (write-region text nil f2 nil 'silent)
+            (insert-file-contents f2)
+            (should (= (buffer-chars-modified-tick) (buffer-modified-tick)))
+            (should (> (buffer-chars-modified-tick) 1))))
+      (if f1 (delete-file f1))
+      (if f2 (delete-file f2))
+      )))
 
 ;;; buffer-tests.el ends here

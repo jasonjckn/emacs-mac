@@ -191,8 +191,9 @@ other meta-variable based on this name.")
   "Encode one makefile.")
 
 ;;; Code:
-(cl-defmethod project-add-file ((ot project-am-target))
+(cl-defmethod project-add-file ((ot project-am-target) &optional _file)
   "Add the current buffer into a project.
+_FILE is ignored.
 OT is the object target.  DIR is the directory to start in."
   (let* ((target (if ede-object (error "Already associated w/ a target")
 		   (let ((amf (project-am-load default-directory)))
@@ -910,7 +911,7 @@ Kill the Configure buffer if it was not already in a buffer."
     (goto-char (point-min))
     (when (re-search-forward (concat "^" (regexp-quote var) "\\s-*=\\s-*")
 			     nil t)
-      (buffer-substring-no-properties (point) (point-at-eol)))))
+      (buffer-substring-no-properties (point) (line-end-position)))))
 
 (defun project-am-extract-package-info (dir)
   "Extract the package information for directory DIR."

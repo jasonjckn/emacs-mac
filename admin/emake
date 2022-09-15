@@ -13,14 +13,14 @@ cores=1
 
 # Determine the number of cores.
 if [ -f /proc/cpuinfo ]; then
-    cores=$(($(egrep "^physical id|^cpu cores" /proc/cpuinfo |\
+    cores=$(($(grep -E "^physical id|^cpu cores" /proc/cpuinfo |\
 	awk '{ print $4; }' |\
 	sed '$!N;s/\n/ /' |\
 	uniq |\
 	sed 's/^[0-9]*/+/')))
 fi
 
-make -j$cores "$@" 2>&1 | \
+make FAST=true -j$cores "$@" 2>&1 | \
 sed -u 's# \.\./\.\./# #
 s# \.\./# #
 s#^Configuring local git # Configuring local git #
@@ -28,20 +28,22 @@ s#^Installing git hooks...# Installing git hooks...#
 s#^Running # Running #
 s#^Configured for # Configured for #
 s#^./temacs.*#  \\& #
+s#^make.*Error#  \\& #
+s#^Dumping under the name.*#  \\& #
 ' | \
-egrep --line-buffered -v "^make|\
+grep -E --line-buffered -v "^make|\
 ^Loading|\
 SCRAPE|\
 INFO.*Scraping.*[.] ?\$|\
 INFO.*Scraping.*done\$|\
 GEN.*etc/DOC|\
+GEN.*autoloads|\
 ^Waiting for git|\
 ^Finding pointers|\
 ^Using load-path|\
 ^Adding name|\
 ^Dump mode|\
 ^Dumping finger|\
-^Dumping under the name|\
 ^Byte counts|\
 ^Reloc counts|\
 ^Pure-hashed|\
@@ -78,6 +80,8 @@ The GNU allocators don't work|\
 ^git config |\
 ^'\.git/|\
 ^\^\(\(|\
+^ANCIENT=yes make|\
+^touch -t|\
 ^'build-aux/git-hooks\
 " | \
 while read
@@ -92,4 +96,4 @@ done
 # changed since last time.
 make -j$cores check-maybe 2>&1 | \
     sed -n '/contained unexpected results/,$p' | \
-    egrep --line-buffered -v "^make"
+    grep -E --line-buffered -v "^make"

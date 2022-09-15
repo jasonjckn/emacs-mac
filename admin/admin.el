@@ -88,6 +88,9 @@ Optional argument DATE is the release date, default today."
     (kill-buffer)
     (message "No need to update `%s'" file)))
 
+(defvar admin-git-command (executable-find "git")
+  "The `git' program to use.")
+
 (defun set-version (root version)
   "Set Emacs version to VERSION in relevant files under ROOT.
 Root must be the root of an Emacs source tree."
@@ -96,6 +99,8 @@ Root must be the root of an Emacs source tree."
 		(read-string "Version number: " emacs-version)))
   (unless (file-exists-p (expand-file-name "src/emacs.c" root))
     (user-error "%s doesn't seem to be the root of an Emacs source tree" root))
+  (unless admin-git-command
+    (user-error "Could not find git; please install git and move NEWS manually"))
   (message "Setting version numbers...")
   ;; There's also a "version 3" (standing for GPLv3) at the end of
   ;; `README', but since `set-version-in-file' only replaces the first
@@ -119,9 +124,6 @@ Root must be the root of an Emacs source tree."
   ;; Major version only.
   (when (string-match "\\([0-9]\\{2,\\}\\)" version)
     (let ((newmajor (match-string 1 version)))
-      (set-version-in-file root "src/msdos.c" newmajor
-                           (rx (and "Vwindow_system_version" (1+ not-newline)
-                                    ?\( (submatch (1+ (in "0-9"))) ?\))))
       (set-version-in-file root "etc/refcards/ru-refcard.tex" newmajor
                            "\\\\newcommand{\\\\versionemacs}\\[0\\]\
 {\\([0-9]\\{2,\\}\\)}.+%.+version of Emacs")))
@@ -157,7 +159,13 @@ Root must be the root of an Emacs source tree."
 Documentation changes might not have been completed!"))))
     (when (and majorbump
                (not (file-exists-p oldnewsfile)))
-      (rename-file newsfile oldnewsfile)
+      (call-process admin-git-command nil nil nil
+                    "mv" newsfile oldnewsfile)
+      (when (y-or-n-p "Commit move of NEWS file?")
+        (call-process admin-git-command nil nil nil
+                      "commit" "-m" (format "; Move etc/%s to etc/%s"
+                                            (file-name-nondirectory newsfile)
+                                            (file-name-nondirectory oldnewsfile))))
       (find-file oldnewsfile)           ; to prompt you to commit it
       (copy-file oldnewsfile newsfile)
       (with-temp-buffer
@@ -769,6 +777,136 @@ Optional argument TYPE is type of output (nil means all)."
   (dolist (m '("emacs" "lispref" "lispintro" "misc"))
     (if (member type (list nil m))
 	(make-manuals-dist--1 root m))))
+
+(defun make-news-html-file (root version)
+  "Convert the NEWS file into an HTML file."
+  (interactive (let ((root
+                      (if noninteractive
+                          (or (pop command-line-args-left)
+                              default-directory)
+                        (read-directory-name "Emacs root directory: "
+                                             source-directory nil t))))
+                 (list root
+                       (read-string "Version number: " emacs-version))))
+  (unless (file-exists-p (expand-file-name "src/emacs.c" root))
+    (user-error "%s doesn't seem to be the root of an Emacs source tree" root))
+  (let* ((dir (make-temp-file "emacs-news-file" t))
+         (orig (expand-file-name "etc/NEWS" root))
+         (new (expand-file-name (format "NEWS.%s.org" version) dir))
+         (html-file (format "%s.html" (file-name-base new)))
+         (copyright-years (format-time-string "%Y")))
+    (unwind-protect
+        (progn
+          (copy-file orig new)
+          (find-file new)
+
+          ;; Find the copyright range:
+          (goto-char (point-min))
+          (re-search-forward "^Copyright (C) \\([0-9-]+\\) Free Software Foundation, Inc.")
+          (setq copyright-years (match-string 1))
+
+          ;; Get rid of some unnecessary stuff:
+          (replace-regexp-in-region "^---$" "" (point-min) (point-max))
+          (replace-regexp-in-region "^\\+\\+\\+$" "" (point-min) (point-max))
+          (dolist (str '("\n"
+                         "GNU Emacs NEWS -- history of user-visible changes."
+                         "Temporary note:"
+                         "+++ indicates that all relevant manuals in doc/ have been updated."
+                         "--- means no change in the manuals is needed."
+                         "When you add a new item, use the appropriate mark if you are sure it"
+                         "applies, and please also update docstrings as needed."
+                         "You can narrow news to a specific version by calling 'view-emacs-news'"
+                         "with a prefix argument or by typing 'C-u C-h C-n'."))
+            (replace-string-in-region str "" (point-min) (point-max)))
+
+          ;; Use Org-mode markers for <code>.
+          (replace-regexp-in-region
+           ;; This could probably be improved quite a bit...
+           (rx "'" (group (+ (not (any "'\n")))) "'")
+           "~\\1~" (point-min) (point-max))
+
+          ;; Format Emacs Lisp.
+          (while (re-search-forward "^    " nil t)
+            (backward-paragraph)
+            (insert "\n#+begin_src emacs-lisp")
+            (forward-paragraph)
+            (insert "#+end_src\n"))
+
+          ;; Insert Org-mode export headers.
+          (goto-char (point-min))
+          (insert (format
+                   "\
+#+title: GNU Emacs %s NEWS -- history of user-visible changes
+#+author:
+#+options: author:nil creator:nil toc:1 num:2 *:nil \\n:nil
+#+language: en
+#+HTML_LINK_HOME: https://www.gnu.org/software/emacs
+#+html_head_extra: <link rel=\"stylesheet\" type=\"text/css\" href=\"/mini.css\" media=\"handheld\" />
+#+html_head_extra: <link rel=\"stylesheet\" type=\"text/css\" href=\"/layout.min.css\" media=\"screen\" />
+#+html_head_extra: <link rel=\"stylesheet\" type=\"text/css\" href=\"/print.min.css\" media=\"print\" />
+
+#+BEGIN_EXPORT html
+<div style=\"float:right;margin-left:1em;padding:3px;border:0px solid;text-align:center\">
+<a href=\"/graphics/gnu-head.jpg\">
+<img src=\"/graphics/gnu-head-sm.jpg\" alt=\" [image of the head
+of a GNU] \" width=\"129\" height=\"122\"/>
+</a>
+</div>
+#+END_EXPORT\n\n"
+                   version))
+          (org-mode)
+          (let ((org-html-postamble
+                 (format
+                  "
+<p>
+Return to the <a href=\"/software/emacs/emacs.html\">GNU Emacs home page</a>.
+</p>
+
+<div id=\"footer\">
+<div class=\"unprintable\">
+
+<p>
+Please send FSF &amp; GNU inquiries to
+<a href=\"mailto:gnu@gnu.org\">&lt;gnu@gnu.org&gt;</a>.
+There are also <a href=\"/contact/\">other ways to contact</a>
+the FSF.
+Broken links and other corrections or suggestions can be sent to
+<a href=\"mailto:bug-gnu-emacs@gnu.org\">&lt;bug-gnu-emacs@gnu.org&gt;</a>.
+</p>
+</div>
+
+<p>
+    Copyright &copy; %s Free Software Foundation, Inc.
+</p>
+
+<p>This page is licensed under
+a <a href=\"https://creativecommons.org/licenses/by-sa/4.0\">CC-BY-SA</a>
+license.</p>
+
+<!--#include virtual=\"/server/bottom-notes.html\" -->
+
+<p class=\"unprintable\">
+Updated:
+<!-- timestamp start -->
+$Date: %s $
+<!-- timestamp end -->
+</p>
+</div>
+</div>"
+                  copyright-years
+                  ;; e.g. "2022/09/13 09:13:13"
+                  (format-time-string "%Y/%M/%y %H:%m:%S"))))
+            ;; Actually export.
+            (org-html-export-to-html)
+            ;; Kill the .org buffer.
+            (kill-buffer (current-buffer))
+            ;; Move file into place.
+            (let ((old (expand-file-name html-file dir))
+                  (new (expand-file-name html-file (expand-file-name "etc" root))))
+              (delete-file new)
+              (copy-file old new)
+              (find-file new))))
+      (delete-directory dir t))))
 
 
 ;; Stuff to check new `defcustom's got :version tags.

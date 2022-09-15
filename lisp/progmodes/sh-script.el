@@ -286,7 +286,7 @@ naming the shell."
   :group 'sh-script)
 
 (defcustom sh-imenu-generic-expression
-  '((sh
+  `((sh
      . ((nil
 	 ;; function FOO
 	 ;; function FOO()
@@ -295,8 +295,21 @@ naming the shell."
 	;; FOO()
 	(nil
 	 "^\\s-*\\([[:alpha:]_][[:alnum:]_]*\\)\\s-*()"
-	 1)
-	)))
+	 1)))
+    (mksh
+     . ((nil
+         ;; function FOO
+         ;; function FOO()
+         ,(rx bol (* (syntax whitespace)) "function" (+ (syntax whitespace))
+              (group (1+ (not (any "\0\t\n \"$&'();<=>\\`|#*?[]/"))))
+              (* (syntax whitespace)) (? "()"))
+         1)
+        (nil
+         ;; FOO()
+         ,(rx bol (* (syntax whitespace))
+              (group (1+ (not (any "\0\t\n \"$&'();<=>\\`|#*?[]/"))))
+              (* (syntax whitespace)) "()")
+         1))))
   "Alist of regular expressions for recognizing shell function definitions.
 See `sh-feature' and `imenu-generic-expression'."
   :type '(alist :key-type (symbol :tag "Shell")
@@ -306,7 +319,7 @@ See `sh-feature' and `imenu-generic-expression'."
 				   :value-type
 				   (repeat :tag "Regexp, index..." sexp)))
   :group 'sh-script
-  :version "20.4")
+  :version "29.1")
 
 (defun sh-current-defun-name ()
   "Find the name of function or variable at point.
@@ -402,45 +415,42 @@ This is buffer-local in every such buffer.")
     (rpm . (,sh-mode-syntax-table ?\' ".")))
   "Syntax-table used in Shell-Script mode.  See `sh-feature'.")
 
-(defvar sh-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map "\C-c(" 'sh-function)
-    (define-key map "\C-c\C-w" 'sh-while)
-    (define-key map "\C-c\C-u" 'sh-until)
-    (define-key map "\C-c\C-t" 'sh-tmp-file)
-    (define-key map "\C-c\C-s" 'sh-select)
-    (define-key map "\C-c\C-r" 'sh-repeat)
-    (define-key map "\C-c\C-o" 'sh-while-getopts)
-    (define-key map "\C-c\C-l" 'sh-indexed-loop)
-    (define-key map "\C-c\C-i" 'sh-if)
-    (define-key map "\C-c\C-f" 'sh-for)
-    (define-key map "\C-c\C-c" 'sh-case)
-    (define-key map "\C-c?" #'smie-config-show-indent)
-    (define-key map "\C-c=" #'smie-config-set-indent)
-    (define-key map "\C-c<" #'smie-config-set-indent)
-    (define-key map "\C-c>" #'smie-config-guess)
-    (define-key map "\C-c\C-\\" 'sh-backslash-region)
+(defvar-keymap sh-mode-map
+  :doc "Keymap used in Shell-Script mode."
+  "C-c ("    #'sh-function
+  "C-c C-w"  #'sh-while
+  "C-c C-u"  #'sh-until
+  "C-c C-t"  #'sh-tmp-file
+  "C-c C-s"  #'sh-select
+  "C-c C-r"  #'sh-repeat
+  "C-c C-o"  #'sh-while-getopts
+  "C-c C-l"  #'sh-indexed-loop
+  "C-c C-i"  #'sh-if
+  "C-c C-f"  #'sh-for
+  "C-c C-c"  #'sh-case
+  "C-c ?"    #'smie-config-show-indent
+  "C-c ="    #'smie-config-set-indent
+  "C-c <"    #'smie-config-set-indent
+  "C-c >"    #'smie-config-guess
+  "C-c C-\\" #'sh-backslash-region
 
-    (define-key map "\C-c+" 'sh-add)
-    (define-key map "\C-\M-x" 'sh-execute-region)
-    (define-key map "\C-c\C-x" 'executable-interpret)
-    (define-key map "\C-c\C-n" 'sh-send-line-or-region-and-step)
-    (define-key map "\C-c\C-d" 'sh-cd-here)
-    (define-key map "\C-c\C-z" 'sh-show-shell)
+  "C-c +"    #'sh-add
+  "C-M-x"    #'sh-execute-region
+  "C-c C-x"  #'executable-interpret
+  "C-c C-n"  #'sh-send-line-or-region-and-step
+  "C-c C-d"  #'sh-cd-here
+  "C-c C-z"  #'sh-show-shell
+  "C-c :"    #'sh-set-shell
 
-    (define-key map [remap delete-backward-char]
-      'backward-delete-char-untabify)
-    (define-key map "\C-c:" 'sh-set-shell)
-    (define-key map [remap backward-sentence] 'sh-beginning-of-command)
-    (define-key map [remap forward-sentence] 'sh-end-of-command)
-    map)
-  "Keymap used in Shell-Script mode.")
+  "<remap> <delete-backward-char>" #'backward-delete-char-untabify
+  "<remap> <backward-sentence>"    #'sh-beginning-of-command
+  "<remap> <forward-sentence>"     #'sh-end-of-command)
 
 (easy-menu-define sh-mode-menu sh-mode-map
   "Menu for Shell-Script mode."
   '("Sh-Script"
     ["Backslash region" sh-backslash-region
-     :help "Insert, align, or delete end-of-line backslashes on the lines in the region."]
+     :help "Insert, align, or delete end-of-line backslashes on the lines in the region"]
     ["Set shell type..." sh-set-shell
      :help "Set this buffer's shell to SHELL (a string)"]
     ["Execute script..." executable-interpret
@@ -458,7 +468,7 @@ This is buffer-local in every such buffer.")
     ["Select Statement" sh-select
      :help "Insert a select statement "]
     ["Indexed Loop" sh-indexed-loop
-     :help "Insert an indexed loop from 1 to n."]
+     :help "Insert an indexed loop from 1 to n"]
     ["Options Loop" sh-while-getopts
      :help "Insert a while getopts loop."]
     ["While Loop" sh-while
@@ -482,7 +492,7 @@ This is buffer-local in every such buffer.")
     ["Show indentation" smie-config-show-indent
      :help "Show the how the current line would be indented"]
     ["Learn buffer indentation" smie-config-guess
-     :help "Learn how to indent the buffer the way it currently is."]))
+     :help "Learn how to indent the buffer the way it currently is"]))
 
 (defvar sh-skeleton-pair-default-alist '((?\( _ ?\)) (?\))
 				      (?\[ ?\s _ ?\s ?\]) (?\])
@@ -628,7 +638,8 @@ removed when closing the here document."
     (wksh sh-append ksh88)
 
     (zsh sh-append ksh88
-	 "autoload" "bindkey" "builtin" "chdir" "compctl" "declare" "dirs"
+	 "autoload" "always"
+         "bindkey" "builtin" "chdir" "compctl" "declare" "dirs"
 	 "disable" "disown" "echotc" "enable" "functions" "getln" "hash"
 	 "history" "integer" "limit" "local" "log" "popd" "pushd" "r"
 	 "readonly" "rehash" "sched" "setopt" "source" "suspend" "true"
@@ -643,7 +654,12 @@ implemented as aliases.  See `sh-feature'."
   :version "24.4"                       ; bash4 additions
   :group 'sh-script)
 
-
+(defcustom sh-indent-statement-after-and t
+  "How to indent statements following && in Shell-Script mode.
+If t, indent to align with &&.
+If nil, indent to align with the previous line's indentation."
+  :type 'boolean
+  :version "29.1")
 
 (defcustom sh-leading-keywords
   '((bash sh-append sh
@@ -866,7 +882,7 @@ See `sh-feature'.")
     "\\(?:\\(?:.*[^\\\n]\\)?\\(?:\\\\\\\\\\)*\\\\\n\\)*.*")
 
   (defconst sh-here-doc-open-re
-    (concat "[^<]<<-?\\s-*\\\\?\\(\\(?:['\"][^'\"]+['\"]\\|\\sw\\|[-/~._]\\)+\\)"
+    (concat "[^<]<<-?\\s-*\\\\?\\(\\(?:['\"][^'\"]+['\"]\\|\\sw\\|[-/~._@]\\)+\\)"
             sh-escaped-line-re "\\(\n\\)")))
 
 (defun sh--inside-noncommand-expression (pos)
@@ -1140,8 +1156,8 @@ Can be set to a number, or to nil which means leave it as is."
   "The default indentation increment.
 This value is used for the `+' and `-' symbols in an indentation variable."
   :type 'integer
+  :safe #'integerp
   :group 'sh-indentation)
-(put 'sh-basic-offset 'safe-local-variable 'integerp)
 
 (defcustom sh-indent-comment t
   "How a comment line is to be indented.
@@ -1409,7 +1425,7 @@ If FORCE is non-nil and no process found, create one."
 (defun sh-show-shell ()
   "Pop the shell interaction buffer."
   (interactive)
-  (pop-to-buffer (process-buffer (sh-shell-process t))))
+  (pop-to-buffer (process-buffer (sh-shell-process t)) display-comint-buffer-action))
 
 (defun sh-send-text (text)
   "Send TEXT to `sh-shell-process'."
@@ -1540,6 +1556,11 @@ with your script for an edit-interpret-debug cycle."
   (add-hook 'completion-at-point-functions
             #'sh-completion-at-point-function nil t)
   (setq-local outline-regexp "###")
+  (setq-local escaped-string-quote
+              (lambda (terminator)
+                (if (eq terminator ?')
+                    "'\\'"
+                  "\\")))
   ;; Parse or insert magic number for exec, and set all variables depending
   ;; on the shell thus determined.
   (sh-set-shell
@@ -1551,7 +1572,7 @@ with your script for an edit-interpret-debug cycle."
          ;; Checks that use `buffer-file-name' follow.
          ((string-match "\\.m?spec\\'" buffer-file-name) "rpm")
          ((string-match "[.]sh\\>"     buffer-file-name) "sh")
-         ((string-match "[.]bash\\>"   buffer-file-name) "bash")
+         ((string-match "[.]bash\\(rc\\)?\\>"   buffer-file-name) "bash")
          ((string-match "[.]ksh\\>"    buffer-file-name) "ksh")
          ((string-match "[.]mkshrc\\>" buffer-file-name) "mksh")
          ((string-match "[.]t?csh\\(rc\\)?\\>" buffer-file-name) "csh")
@@ -1604,7 +1625,7 @@ This adds rules for comments and assignments."
 
 ;;; Completion
 
-(defvar sh--completion-keywords '("if" "while" "until" "for"))
+(defvar sh--completion-keywords '("if" "while" "until" "for" "then"))
 
 (defun sh--vars-before-point ()
   (save-excursion
@@ -1776,21 +1797,27 @@ Does not preserve point."
         (n (skip-syntax-backward ".")))
     (if (or (zerop n)
             (and (eq n -1)
+                 ;; Skip past quoted white space.
                  (let ((p (point)))
                    (if (eq -1 (% (skip-syntax-backward "\\") 2))
                        t
                      (goto-char p)
                      nil))))
         (while
-            (progn (skip-syntax-backward ".w_'")
-                   (or (not (zerop (skip-syntax-backward "\\")))
-                       (when (eq ?\\ (char-before (1- (point))))
-                         (let ((p (point)))
-                           (forward-char -1)
-                           (if (eq -1 (% (skip-syntax-backward "\\") 2))
-                               t
-                             (goto-char p)
-                             nil))))))
+            (progn
+              ;; Skip past words, but stop at semicolons.
+              (while (and (not (zerop (skip-syntax-backward "w_'")))
+                          (not (eq (char-before (point)) ?\;))
+                          (skip-syntax-backward ".")))
+              (or (not (zerop (skip-syntax-backward "\\")))
+                  ;; Skip past quoted white space.
+                  (when (eq ?\\ (char-before (1- (point))))
+                    (let ((p (point)))
+                      (forward-char -1)
+                      (if (eq -1 (% (skip-syntax-backward "\\") 2))
+                          t
+                        (goto-char p)
+                        nil))))))
       (goto-char (- (point) (% (skip-syntax-backward "\\") 2))))
     (buffer-substring-no-properties (point) pos)))
 
@@ -1899,9 +1926,9 @@ With t, you get the latter as long as that would indent the continuation line
 deeper than the initial line."
   :version "25.1"
   :type '(choice
-          (const nil :tag "Never")
-          (const t   :tag "Only if needed to make it deeper")
-          (const always :tag "Always"))
+          (const :value nil    :tag "Never")
+          (const :value t      :tag "Only if needed to make it deeper")
+          (const :value always :tag "Always"))
   :group 'sh-indentation)
 
 (defun sh-smie--continuation-start-indent ()
@@ -1975,7 +2002,7 @@ May return nil if the line should not be treated as continued."
          (cons 'column (smie-indent-keyword ";"))
        (smie-rule-separator kind)))
     (`(:after . ,(or ";;" ";&" ";;&"))
-     (with-demoted-errors
+     (with-demoted-errors "SMIE rule error: %S"
        (smie-backward-sexp token)
        (cons 'column
              (if (or (smie-rule-bolp)
@@ -1986,7 +2013,9 @@ May return nil if the line should not be treated as continued."
                  (current-column)
                (smie-indent-calculate)))))
     (`(:before . ,(or "|" "&&" "||"))
-     (unless (smie-rule-parent-p token)
+     (when (and (not (smie-rule-parent-p token))
+                (or (not (equal token "&&"))
+                    sh-indent-statement-after-and))
        (smie-backward-sexp token)
        `(column . ,(+ (funcall smie-rules-function :elem 'basic)
                       (smie-indent-virtual)))))
@@ -2381,6 +2410,8 @@ Lines containing only comments are considered empty."
 The working directory is that of the buffer, and only environment variables
 are already set which is why you can mark a header within the script.
 
+The executed subshell is `sh-shell-file'.
+
 With a positive prefix ARG, instead of sending region, define header from
 beginning of buffer to point.  With a negative prefix ARG, instead of sending
 region, clear header."
@@ -2388,17 +2419,18 @@ region, clear header."
   (if flag
       (setq sh-header-marker (if (> (prefix-numeric-value flag) 0)
 				 (point-marker)))
-    (if sh-header-marker
-	(save-excursion
-	  (let (buffer-undo-list)
-	    (goto-char sh-header-marker)
-	    (append-to-buffer (current-buffer) start end)
-	    (shell-command-on-region (point-min)
-				     (setq end (+ sh-header-marker
-						  (- end start)))
-				     sh-shell-file)
-	    (delete-region sh-header-marker end)))
-      (shell-command-on-region start end (concat sh-shell-file " -")))))
+    (let ((shell-file-name sh-shell-file))
+      (if sh-header-marker
+	  (save-excursion
+	    (let (buffer-undo-list)
+	      (goto-char sh-header-marker)
+	      (append-to-buffer (current-buffer) start end)
+	      (shell-command-on-region (point-min)
+				       (setq end (+ sh-header-marker
+						    (- end start)))
+				       sh-shell-file)
+	      (delete-region sh-header-marker end)))
+        (shell-command-on-region start end (concat sh-shell-file " -"))))))
 
 
 (defun sh-remember-variable (var)
@@ -2949,14 +2981,6 @@ option followed by a colon `:' if the option accepts an argument."
 			      t)
 	   (match-string 1))))))
 
-
-(defun sh-maybe-here-document (arg)
-  "Insert self.  Without prefix, following unquoted `<' inserts here document.
-The document is bounded by `sh-here-document-word'."
-  (declare (obsolete sh-electric-here-document-mode "24.3"))
-  (interactive "*P")
-  (self-insert-command (prefix-numeric-value arg))
-  (or arg (sh--maybe-here-document)))
 
 (defun sh--maybe-here-document ()
   (when (and (looking-back "[^<]<<[ E-]" (line-beginning-position))

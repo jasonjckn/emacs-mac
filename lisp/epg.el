@@ -334,6 +334,7 @@ callback data (if any)."
 
 (cl-defstruct (epg-key
                (:constructor nil)
+               (:copier epg--copy-key)
                (:constructor epg-make-key (owner-trust))
                (:predicate nil))
   (owner-trust nil :read-only t)
@@ -605,7 +606,7 @@ callback data (if any)."
 	 process
 	 terminal-name
 	 agent-file
-	 (agent-mtime '(0 0 0 0)))
+	 (agent-mtime 0))
     ;; Set GPG_TTY and TERM for pinentry-curses.  Note that we can't
     ;; use `terminal-name' here to get the real pty name for the child
     ;; process, though /dev/fd/0" is not portable.
@@ -632,7 +633,7 @@ callback data (if any)."
       (setq agent-file (match-string 1 agent-info)
 	    agent-mtime (or (file-attribute-modification-time
 			     (file-attributes agent-file))
-			    '(0 0 0 0))))
+			    0)))
     (if epg-debug
 	(save-excursion
 	  (unless epg-debug-buffer
@@ -1389,7 +1390,7 @@ NAME is either a string or a list of strings."
      (if (seq-find (lambda (user)
                      (eq (epg-user-id-validity user) 'revoked))
                    (epg-key-user-id-list key))
-         (let ((copy (copy-epg-key key)))
+         (let ((copy (epg--copy-key key)))
            (setf (epg-key-user-id-list copy)
                  (seq-remove (lambda (user)
                                (eq (epg-user-id-validity user) 'revoked))

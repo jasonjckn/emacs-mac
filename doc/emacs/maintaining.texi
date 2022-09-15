@@ -690,11 +690,15 @@ started editing (@pxref{Old Revisions}), type @kbd{C-c C-d}
 
 @kindex C-c C-w @r{(Log Edit mode)}
 @findex log-edit-generate-changelog-from-diff
+@vindex diff-add-log-use-relative-names
   To help generate ChangeLog entries, type @kbd{C-c C-w}
 (@code{log-edit-generate-changelog-from-diff}), to generate skeleton
 ChangeLog entries, listing all changed file and function names based
 on the diff of the VC fileset.  Consecutive entries left empty will be
-combined by @kbd{C-q} (@code{fill-paragraph}).
+combined by @kbd{C-q} (@code{fill-paragraph}).  By default the
+skeleton will just include the file name, without any leading
+directories.  If you wish to prepend the leading directories up to the
+VC root, customize @code{diff-add-log-use-relative-names}.
 
 @kindex C-c C-a @r{(Log Edit mode)}
 @findex log-edit-insert-changelog
@@ -1055,15 +1059,6 @@ prefix argument is a repeat count.
 Move to the next revision entry.  A numeric prefix argument is a
 repeat count.
 
-@item P
-Move to the log of the previous file, if showing logs for a multi-file
-VC fileset.  Otherwise, just move to the beginning of the log.  A
-numeric prefix argument is a repeat count.
-
-@item N
-Move to the log of the next file, if showing logs for a multi-file VC
-fileset.  A numeric prefix argument is a repeat count.
-
 @item a
 Annotate the revision on the current line (@pxref{Old Revisions}).
 
@@ -1325,6 +1320,12 @@ point is on a directory entry, mark all files in that directory tree
 (@code{vc-dir-mark-all-files}).  With a prefix argument, mark all
 listed files and directories.
 
+@findex vc-dir-mark-by-regexp
+@item %
+You can use this command to mark files by regexp
+(@code{vc-dir-mark-by-regexp}).  If given a prefix, unmark files
+instead.
+
 @item G
 Add the file under point to the list of files that the VC should
 ignore (@code{vc-dir-ignore}).  For instance, if the VC is Git, it
@@ -1397,18 +1398,19 @@ Apart from acting on multiple files, these commands behave much like
 their single-buffer counterparts (@pxref{Search}).
 
   The VC Directory buffer additionally defines some branch-related
-commands starting with the prefix @kbd{B}:
+commands starting with the prefix @kbd{b}:
 
 @table @kbd
-@item B c
-Create a new branch (@code{vc-create-tag}).
+@item b c
+Create a new branch (@code{vc-create-branch}).  @xref{Creating
+Branches}.
 
-@item B l
+@item b l
 Prompt for the name of a branch and display the change history of that
 branch (@code{vc-print-branch-log}).
 
-@item B s
-Switch to a branch (@code{vc-retrieve-tag}).  @xref{Switching
+@item b s
+Switch to a branch (@code{vc-switch-branch}).  @xref{Switching
 Branches}.
 
 @item d
@@ -1472,7 +1474,7 @@ Mercurial, command @kbd{hg update} is used to switch to another
 branch.
 
   The VC command to switch to another branch in the current directory
-is @kbd{C-x v r @var{branch-name} @key{RET}} (@code{vc-retrieve-tag}).
+is @kbd{C-x v b s @var{branch-name} @key{RET}} (@code{vc-switch-branch}).
 
   On centralized version control systems, you can also switch between
 branches by typing @kbd{C-u C-x v v} in an up-to-date work file
@@ -1622,8 +1624,8 @@ if the current revision is 2.5, the branch ID should be 2.5.1, 2.5.2,
 and so on, depending on the number of existing branches at that point.
 
   This procedure will not work for distributed version control systems
-like git or Mercurial.  For those systems you should use the prefix
-argument to @code{vc-create-tag} (@kbd{C-u C-x v s}) instead.
+like git or Mercurial.  For those systems you should use the command
+@code{vc-create-branch} (@kbd{C-x v b c}) instead.
 
   To create a new branch at an older revision (one that is no longer
 the head of a branch), first select that revision (@pxref{Switching
@@ -1669,6 +1671,9 @@ support additional types of projects.
   Which files do or don't belong to a project is also determined by
 the project back-end.  For example, the VC back-end doesn't consider
 ``ignored'' files (@pxref{VC Ignore}) to be part of the project.
+Also, the VC Project back-end considers ``untracked'' files by default.
+That behavior is controllable with the variable
+@code{project-vc-include-untracked}.
 
 @menu
 * Project File Commands::   Commands for handling project files.
@@ -1728,6 +1733,7 @@ doesn't seem to belong to a recognizable project, these commands
 prompt you for the project directory.
 
 @findex project-find-file
+@vindex vc-directory-exclusion-list
   The command @kbd{C-x p f} (@code{project-find-file}) is a convenient
 way of visiting files (@pxref{Visiting}) that belong to the current
 project.  Unlike @kbd{C-x C-f}, this command doesn't require to type
@@ -1736,7 +1742,9 @@ base name (i.e., omit the leading directories).  In addition, the
 completion candidates considered by the command include only the files
 belonging to the current project, and nothing else.  If there's a file
 name at point, this command offers that file as the first element of
-the ``future history''.
+the ``future history''.  If given a prefix, include all files under
+the project root, except for @acronym{VCS} directories listed in
+@code{vc-directory-exclusion-list}.
 
 @findex project-find-regexp
   The command @kbd{C-x p g} (@code{project-find-regexp}) is similar to
@@ -1831,11 +1839,14 @@ buffers as candidates for completion.
 
 @findex project-kill-buffers
 @vindex project-kill-buffer-conditions
+@vindex project-kill-buffers-display-buffer-list
   When you finish working on the project, you may wish to kill all the
 buffers that belong to the project, to keep your Emacs session
 smaller.  The command @kbd{C-x p k} (@code{project-kill-buffers})
 accomplishes that: it kills all the buffers that belong to the current
-project that satisfy any of @code{project-kill-buffer-conditions}.
+project that satisfy any of @code{project-kill-buffer-conditions}.  If
+@code{project-kill-buffers-display-buffer-list} is non-@code{nil}, the
+buffers to be killed will be displayed first.
 
 @node Switching Projects
 @subsection Switching Projects
@@ -2139,7 +2150,10 @@ Find definition of identifier, and display it in a new frame
 Find definition of identifier at mouse click.
 @item M-,
 Go back to where you previously invoked @kbd{M-.} and friends
-(@code{xref-pop-marker-stack}).
+(@code{xref-go-back}).
+@item C-M-,
+Go forward to where you previously invoked @kbd{M-,}
+(@code{xref-go-forward}).
 @item M-x xref-etags-mode
 Switch @code{xref} to use the @code{etags} backend.
 @end table
@@ -2204,15 +2218,17 @@ selects the window showing the first candidate.  The default value is
 buffer, but doesn't select any of them.
 
 @kindex M-,
-@findex xref-pop-marker-stack
-@vindex xref-marker-ring-length
+@findex xref-go-back
   To go back to places @emph{from where} you've displayed the definition,
-use @kbd{M-,} (@code{xref-pop-marker-stack}).  It jumps back to the
+use @kbd{M-,} (@code{xref-go-back}).  It jumps back to the
 point of the last invocation of @kbd{M-.}.  Thus you can find and
 examine the definition of something with @kbd{M-.} and then return to
-where you were with @kbd{M-,}.  @kbd{M-,} allows you to retrace your
-steps to a depth determined by the variable
-@code{xref-marker-ring-length}, which defaults to 16.
+where you were with @kbd{M-,}.
+
+@kindex C-M-,
+@findex xref-go-forward
+  If you previously went back too far with @kbd{M-,}, @kbd{C-M-,}
+(@code{xref-go-forward}) can be used to go forward again.
 
 @findex xref-etags-mode
   Some major modes install @code{xref} support facilities that might
@@ -2312,9 +2328,14 @@ them.
 @item M-?
 Find all the references for the identifier at point.
 
-@item M-x xref-query-replace-in-results @key{RET} @var{regexp} @key{RET} @var{replacement} @key{RET}
+@item M-x xref-query-replace-in-results @key{RET} @var{replacement} @key{RET}
+@itemx C-u M-x xref-query-replace-in-results @key{RET} @var{regexp} @key{RET} @var{replacement} @key{RET}
 Interactively replace @var{regexp} with @var{replacement} in the names
 of all the identifiers shown in the @file{*xref*} buffer.
+
+@item M-x xref-find-references-and-replace @key{RET} @var{from} @key{RET} @var{to} @key{RET}
+Interactively rename all instances of the identifier @var{from} to the
+new name @var{to}.
 
 @item M-x tags-search @key{RET} @var{regexp} @key{RET}
 Search for @var{regexp} through the files in the selected tags
@@ -2353,13 +2374,21 @@ shown.  The default value is @code{nil}, which just shows the results
 in the @file{*xref*} buffer, but doesn't select any of them.
 
 @findex xref-query-replace-in-results
-  @kbd{M-x xref-query-replace-in-results} reads a regexp to match identifier
-names and a replacement string, just like ordinary @kbd{M-x
-query-replace-regexp}.  It then performs the specified replacement in
-the names of the matching identifiers in all the places in all the
-files where these identifiers are referenced.  This is useful when you
+  @kbd{M-x xref-query-replace-in-results} reads a @var{replacement}
+string, just like ordinary @kbd{M-x query-replace-regexp}.  It then
+renames the identifiers shown in the @file{*xref*} buffer in all the
+places in all the files where these identifiers are referenced, such
+that their new name is @var{replacement}.  This is useful when you
 rename your identifiers as part of refactoring.  This command should
-be invoked in the @file{*xref*} buffer generated by @kbd{M-?}.
+be invoked in the @file{*xref*} buffer generated by @kbd{M-?}.  With a
+prefix argument, the command also prompts for a regexp to match
+identifier names, and renames that regexp in the names of the matching
+identifiers with @var{replacement}.
+
+@findex xref-find-references-and-replace
+  @kbd{M-x xref-find-references-and-replace} works similarly to
+@code{xref-query-replace-in-results}, but is more convenient when you
+want to rename a single identifier specified by its name @var{from}.
 
 @findex tags-search
   @kbd{M-x tags-search} reads a regexp using the minibuffer, then

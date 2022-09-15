@@ -28,9 +28,10 @@
 
 (require 'browse-url)
 (require 'ert)
+(require 'ert-x)
 
 (ert-deftest browse-url-tests-browser-kind ()
-  (should (eq (browse-url--browser-kind #'browse-url-w3 "gnu.org")
+  (should (eq (browse-url--browser-kind #'browse-url-emacs "gnu.org")
               'internal))
   (should
    (eq (browse-url--browser-kind #'browse-url-firefox "gnu.org")
@@ -72,7 +73,7 @@
   (should (equal (browse-url-encode-url "\"a\" \"b\"")
                  "%22a%22%20%22b%22"))
   (should (equal (browse-url-encode-url "(a) (b)") "%28a%29%20%28b%29"))
-  (should (equal (browse-url-encode-url "a$ b$") "a%24%20b%24")))
+  (should (equal (browse-url-encode-url "a$ b$") "a$%20b$")))
 
 (ert-deftest browse-url-tests-url-at-point ()
   (with-temp-buffer
@@ -81,17 +82,19 @@
 
 (ert-deftest browse-url-tests-file-url ()
   (should (equal (browse-url-file-url "/foo") "file:///foo"))
-  (should (equal (browse-url-file-url "/foo:") "ftp://foo/"))
-  (should (equal (browse-url-file-url "/ftp@foo:") "ftp://foo/"))
-  (should (equal (browse-url-file-url "/anonymous@foo:")
-                 "ftp://foo/")))
+  (when (file-remote-p "/foo:")
+    (should (equal (browse-url-file-url "/foo:") "ftp://foo/")))
+  (when (file-remote-p "/ftp@foo:")
+    (should (equal (browse-url-file-url "/ftp@foo:") "ftp://foo/")))
+  (when (file-remote-p "/anonymous@foo:")
+    (should (equal (browse-url-file-url "/anonymous@foo:")
+                   "ftp://foo/"))))
 
 (ert-deftest browse-url-tests-delete-temp-file ()
-  (let ((browse-url-temp-file-name
-         (make-temp-file "browse-url-tests-")))
+  (ert-with-temp-file browse-url-temp-file-name
     (browse-url-delete-temp-file)
     (should-not (file-exists-p browse-url-temp-file-name)))
-  (let ((file (make-temp-file "browse-url-tests-")))
+  (ert-with-temp-file file
     (browse-url-delete-temp-file file)
     (should-not (file-exists-p file))))
 

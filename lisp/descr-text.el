@@ -176,6 +176,10 @@ otherwise."
 	(insert "\n"))
       ;; Text properties
       (when properties
+        (when (plist-get properties 'invisible)
+          (insert "\nNote that character has an invisibility property,\n"
+                  "  so the character displayed at point in the buffer may\n"
+                  "  differ from the character described here.\n"))
 	(newline)
 	(insert "There are text properties here:\n")
 	(describe-property-list properties)))))
@@ -417,6 +421,7 @@ The character information includes:
            (display-table (or (window-display-table)
                               buffer-display-table
                               standard-display-table))
+           (composition-string nil)
            (disp-vector (and display-table (aref display-table char)))
            (multibyte-p enable-multibyte-characters)
            (overlays (mapcar (lambda (o) (overlay-properties o))
@@ -538,7 +543,8 @@ The character information includes:
                     (setcar composition nil)))
                 (setcar (cdr composition)
                         (format "composed to form \"%s\" (see below)"
-                                (buffer-substring from to)))))
+                                (setq composition-string
+                                      (buffer-substring from to))))))
             (setq composition nil)))
 
       (setq item-list
@@ -649,7 +655,9 @@ The character information includes:
               ("file code"
                ,@(if multibyte-p
                      (let* ((coding buffer-file-coding-system)
-                            (encoded (encode-coding-char char coding charset)))
+                            (encoded
+                             (and coding
+                                  (encode-coding-char char coding charset))))
                        (if encoded
                            (list (encoded-string-description encoded coding)
                                  (format "(encoded by coding system %S)"
@@ -682,6 +690,11 @@ The character information includes:
                       (if display
                           (format "terminal code %s" display)
                         "not encodable for terminal"))))))
+              ,@(when-let ((composition-name
+                            (and composition-string
+                                 (eq (aref char-script-table char) 'emoji)
+                                 (emoji-describe composition-string))))
+                  (list (list "composition name" composition-name)))
               ,@(let ((face
                        (if (not (or disp-vector composition))
                            (cond

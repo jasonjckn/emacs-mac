@@ -29,10 +29,6 @@
 ;;
 ;; To do:
 ;; - Interactive temporary customizability of flags in `proced-grammar-alist'
-;; - Allow "sudo kill PID", "sudo renice PID"
-;;   `proced-send-signal' operates on multiple processes one by one.
-;;   With "sudo" we want to execute one "kill" or "renice" command
-;;   for all marked processes.  Is there a `sudo-call-process'?
 ;;
 ;; Thoughts and Ideas
 ;; - Currently, `process-attributes' returns the list of
@@ -55,12 +51,19 @@
   :group 'unix
   :prefix "proced-")
 
+(defcustom proced-show-remote-processes nil
+  "Whether processes of the remote host shall be shown.
+This happens only when `default-directory' is remote."
+  :version "29.1"
+  :type 'boolean)
+
 (defcustom proced-signal-function #'signal-process
   "Name of signal function.
 It can be an elisp function (usually `signal-process') or a string specifying
 the external command (usually \"kill\")."
   :type '(choice (function :tag "function")
                  (string :tag "command")))
+(make-obsolete-variable 'proced-signal-function "no longer used." "29.1")
 
 (defcustom proced-renice-command "renice"
   "Name of renice command."
@@ -275,8 +278,8 @@ It can also be a list of keys appearing in `proced-grammar-alist'."
 ;; FIXME: is there a better name for filter `user' that does not coincide
 ;; with an attribute key?
 (defcustom proced-filter-alist
-  `((user (user . ,(concat "\\`" (regexp-quote (user-real-login-name)) "\\'")))
-    (user-running (user . ,(concat "\\`" (regexp-quote (user-real-login-name)) "\\'"))
+  `((user (user . proced-user-name))
+    (user-running (user . proced-user-name)
                   (state . "\\`[Rr]\\'"))
     (all)
     (all-running (state . "\\`[Rr]\\'"))
@@ -366,7 +369,7 @@ May be used to revert the process listing."
 
 ;; Internal variables
 
-(defvar proced-available (not (null (list-system-processes)))
+(defvar proced-available t;(not (null (list-system-processes)))
   "Non-nil means Proced is known to work on this system.")
 
 (defvar-local proced-process-alist nil
@@ -442,60 +445,58 @@ Important: the match ends just after the marker.")
     (,(concat "^[" (char-to-string proced-marker-char) "]")
      ".+" (proced-move-to-goal-column) nil (0 'proced-marked))))
 
-(defvar proced-mode-map
-  (let ((km (make-sparse-keymap)))
-    ;; moving
-    (define-key km " " 'next-line)
-    (define-key km "n" 'next-line)
-    (define-key km "p" 'previous-line)
-    (define-key km "\C-n" 'next-line)
-    (define-key km "\C-p" 'previous-line)
-    (define-key km "\C-?" 'previous-line)
-    (define-key km [?\S-\ ] 'previous-line)
-    (define-key km [down] 'next-line)
-    (define-key km [up] 'previous-line)
-    ;; marking
-    (define-key km "d" 'proced-mark) ; Dired compatibility ("delete")
-    (define-key km "m" 'proced-mark)
-    (put 'proced-mark :advertised-binding "m")
-    (define-key km "u" 'proced-unmark)
-    (define-key km "\177" 'proced-unmark-backward)
-    (define-key km "M" 'proced-mark-all)
-    (define-key km "U" 'proced-unmark-all)
-    (define-key km "t" 'proced-toggle-marks)
-    (define-key km "C" 'proced-mark-children)
-    (define-key km "P" 'proced-mark-parents)
-    ;; filtering
-    (define-key km "f"  'proced-filter-interactive)
-    (define-key km [mouse-2] 'proced-refine)
-    (define-key km "\C-m" 'proced-refine)
-    ;; sorting
-    (define-key km "sc" 'proced-sort-pcpu)
-    (define-key km "sm" 'proced-sort-pmem)
-    (define-key km "sp" 'proced-sort-pid)
-    (define-key km "ss" 'proced-sort-start)
-    (define-key km "sS" 'proced-sort-interactive)
-    (define-key km "st" 'proced-sort-time)
-    (define-key km "su" 'proced-sort-user)
-    ;; similar to `Buffer-menu-sort-by-column'
-    (define-key km [header-line mouse-1] 'proced-sort-header)
-    (define-key km [header-line mouse-2] 'proced-sort-header)
-    (define-key km "T" 'proced-toggle-tree)
-    ;; formatting
-    (define-key km "F"  'proced-format-interactive)
-    ;; operate
-    (define-key km "o" 'proced-omit-processes)
-    (define-key km "x" 'proced-send-signal) ; Dired compatibility
-    (define-key km "k" 'proced-send-signal) ; kill processes
-    (define-key km "r" 'proced-renice) ; renice processes
-    ;; misc
-    (define-key km "h" 'describe-mode)
-    (define-key km "?" 'proced-help)
-    (define-key km [remap undo] 'proced-undo)
-    (define-key km [remap advertised-undo] 'proced-undo)
-    ;; Additional keybindings are inherited from `special-mode-map'
-    km)
-  "Keymap for Proced commands.")
+(defvar-keymap proced-mode-map
+  :doc "Keymap for Proced commands."
+  ;; moving
+  "SPC"       #'next-line
+  "n"         #'next-line
+  "p"         #'previous-line
+  "C-n"       #'next-line
+  "C-p"       #'previous-line
+  "S-SPC"     #'previous-line
+  "<down>"    #'next-line
+  "<up>"      #'previous-line
+  ;; marking
+  "d"         #'proced-mark ; Dired compatibility ("delete")
+  "m"         #'proced-mark
+  "u"         #'proced-unmark
+  "DEL"       #'proced-unmark-backward
+  "M"         #'proced-mark-all
+  "U"         #'proced-unmark-all
+  "t"         #'proced-toggle-marks
+  "C"         #'proced-mark-children
+  "P"         #'proced-mark-parents
+  ;; filtering
+  "f"         #'proced-filter-interactive
+  "<mouse-2>" #'proced-refine
+  "RET"       #'proced-refine
+  ;; sorting
+  "s c"       #'proced-sort-pcpu
+  "s m"       #'proced-sort-pmem
+  "s p"       #'proced-sort-pid
+  "s s"       #'proced-sort-start
+  "s S"       #'proced-sort-interactive
+  "s t"       #'proced-sort-time
+  "s u"       #'proced-sort-user
+  ;; similar to `Buffer-menu-sort-by-column'
+  "<header-line> <mouse-1>"   #'proced-sort-header
+  "<header-line> <mouse-2>"   #'proced-sort-header
+  "T"         #'proced-toggle-tree
+  ;; formatting
+  "F"         #'proced-format-interactive
+  ;; operate
+  "o"         #'proced-omit-processes
+  "x"         #'proced-send-signal ; Dired compatibility
+  "k"         #'proced-send-signal ; kill processes
+  "r"         #'proced-renice ; renice processes
+  ;; misc
+  "h"         #'describe-mode
+  "?"         #'proced-help
+  "<remap> <undo>"            #'proced-undo
+  "<remap> <advertised-undo>" #'proced-undo
+  ;; Additional keybindings are inherited from `special-mode-map'
+  )
+(put 'proced-mark :advertised-binding "m")
 
 (easy-menu-define proced-menu proced-mode-map
   "Proced Menu."
@@ -565,6 +566,12 @@ Important: the match ends just after the marker.")
      :help "Renice Marked Processes"]))
 
 ;; helper functions
+(defun proced-user-name (user)
+  "Check the `user' attribute with user name `proced' is running for."
+  (string-equal user (if (file-remote-p default-directory)
+                         (file-remote-p default-directory 'user)
+                       (user-real-login-name))))
+
 (defun proced-marker-regexp ()
   "Return regexp matching `proced-marker-char'."
   ;; `proced-marker-char' must appear in column zero
@@ -626,6 +633,7 @@ Return nil if point is not on a process line."
 Type \\[proced] to start a Proced session.  In a Proced buffer
 type \\<proced-mode-map>\\[proced-mark] to mark a process for later commands.
 Type \\[proced-send-signal] to send signals to marked processes.
+Type \\[proced-renice] to renice marked processes.
 
 The initial content of a listing is defined by the variable `proced-filter'
 and the variable `proced-format'.
@@ -658,6 +666,7 @@ After displaying or updating a Proced buffer, Proced runs the normal hook
 `proced-post-display-hook'.
 
 \\{proced-mode-map}"
+  :interactive nil
   (abbrev-mode 0)
   (auto-fill-mode 0)
   (setq buffer-read-only t
@@ -676,8 +685,13 @@ After displaying or updating a Proced buffer, Proced runs the normal hook
 (defun proced (&optional arg)
   "Generate a listing of UNIX system processes.
 \\<proced-mode-map>
-If invoked with optional ARG, do not select the window displaying
-the process information.
+If invoked with optional non-negative ARG, do not select the
+window displaying the process information.
+
+If `proced-show-remote-processes' is non-nil or the command is
+invoked with a negative ARG `\\[universal-argument] \\[negative-argument]', \
+and `default-directory'
+points to a remote host, the system processes of that host are shown.
 
 This function runs the normal hook `proced-post-display-hook'.
 
@@ -688,6 +702,11 @@ Proced buffers."
     (error "Proced is not available on this system"))
   (let ((buffer (get-buffer-create "*Proced*")) new)
     (set-buffer buffer)
+    (when (and (file-remote-p default-directory)
+               (not
+                (or proced-show-remote-processes
+                    (eq arg '-))))
+      (setq default-directory temporary-file-directory))
     (setq new (zerop (buffer-size)))
     (when new
       (proced-mode)
@@ -721,7 +740,7 @@ Proced buffers."
 With prefix ARG, update this buffer automatically if ARG is positive,
 otherwise do not update.  Sets the variable `proced-auto-update-flag'.
 The time interval for updates is specified via `proced-auto-update-interval'."
-  (interactive (list (or current-prefix-arg 'toggle)))
+  (interactive (list (or current-prefix-arg 'toggle)) proced-mode)
   (setq proced-auto-update-flag
         (cond ((eq arg 'toggle) (not proced-auto-update-flag))
               (arg (> (prefix-numeric-value arg) 0))
@@ -733,19 +752,19 @@ The time interval for updates is specified via `proced-auto-update-interval'."
 
 (defun proced-mark (&optional count)
   "Mark the current (or next COUNT) processes."
-  (interactive "p")
+  (interactive "p" proced-mode)
   (proced-do-mark t count))
 
 (defun proced-unmark (&optional count)
   "Unmark the current (or next COUNT) processes."
-  (interactive "p")
+  (interactive "p" proced-mode)
   (proced-do-mark nil count))
 
 (defun proced-unmark-backward (&optional count)
   "Unmark the previous (or COUNT previous) processes."
   ;; Analogous to `dired-unmark-backward',
   ;; but `ibuffer-unmark-backward' behaves different.
-  (interactive "p")
+  (interactive "p" proced-mode)
   (proced-do-mark nil (- (or count 1))))
 
 (defun proced-do-mark (mark &optional count)
@@ -762,7 +781,7 @@ The time interval for updates is specified via `proced-auto-update-interval'."
 
 (defun proced-toggle-marks ()
   "Toggle marks: marked processes become unmarked, and vice versa."
-  (interactive)
+  (interactive nil proced-mode)
   (let ((mark-re (proced-marker-regexp))
         buffer-read-only)
     (save-excursion
@@ -788,14 +807,14 @@ Otherwise move one line forward after inserting the mark."
   "Mark all processes.
 If `transient-mark-mode' is turned on and the region is active,
 mark the region."
-  (interactive)
+  (interactive nil proced-mode)
   (proced-do-mark-all t))
 
 (defun proced-unmark-all ()
   "Unmark all processes.
 If `transient-mark-mode' is turned on and the region is active,
 unmark the region."
-  (interactive)
+  (interactive nil proced-mode)
   (proced-do-mark-all nil))
 
 (defun proced-do-mark-all (mark)
@@ -830,14 +849,14 @@ mark the region."
 (defun proced-mark-children (ppid &optional omit-ppid)
   "Mark child processes of process PPID.
 Also mark process PPID unless prefix OMIT-PPID is non-nil."
-  (interactive (list (proced-pid-at-point) current-prefix-arg))
+  (interactive (list (proced-pid-at-point) current-prefix-arg) proced-mode)
   (proced-mark-process-alist
    (proced-filter-children proced-process-alist ppid omit-ppid)))
 
 (defun proced-mark-parents (cpid &optional omit-cpid)
   "Mark parent processes of process CPID.
 Also mark CPID unless prefix OMIT-CPID is non-nil."
-  (interactive (list (proced-pid-at-point) current-prefix-arg))
+  (interactive (list (proced-pid-at-point) current-prefix-arg) proced-mode)
   (proced-mark-process-alist
    (proced-filter-parents proced-process-alist cpid omit-cpid)))
 
@@ -870,7 +889,7 @@ If `transient-mark-mode' is turned on and the region is active,
 omit the processes in region.
 If QUIET is non-nil suppress status message.
 Returns count of omitted lines."
-  (interactive "P")
+  (interactive "P" proced-mode)
   (let ((mark-re (proced-marker-regexp))
         (count 0)
         buffer-read-only)
@@ -947,7 +966,8 @@ Set variable `proced-filter' to SCHEME.  Revert listing."
   (interactive
    (let ((scheme (completing-read "Filter: "
                                   proced-filter-alist nil t)))
-     (list (if (string= "" scheme) nil (intern scheme)))))
+     (list (if (string= "" scheme) nil (intern scheme))))
+   proced-mode)
   ;; only update if necessary
   (unless (eq proced-filter scheme)
     (setq proced-filter scheme)
@@ -1057,7 +1077,7 @@ Each parent process is followed by its child processes.
 The process tree inherits the chosen sorting order of the process listing,
 that is, child processes of the same parent process are sorted using
 the selected sorting order."
-  (interactive (list (or current-prefix-arg 'toggle)))
+  (interactive (list (or current-prefix-arg 'toggle)) proced-mode)
   (setq proced-tree-flag
         (cond ((eq arg 'toggle) (not proced-tree-flag))
               (arg (> (prefix-numeric-value arg) 0))
@@ -1140,7 +1160,7 @@ This command refines an already existing process listing generated initially
 based on the value of the variable `proced-filter'.  It does not change
 this variable.  It does not revert the listing.  If you frequently need
 a certain refinement, consider defining a new filter in `proced-filter-alist'."
-  (interactive (list last-input-event))
+  (interactive (list last-input-event) proced-mode)
   (if event (posn-set-point (event-end event)))
   (let ((key (get-text-property (point) 'proced-key))
         (pid (get-text-property (point) 'proced-pid)))
@@ -1269,7 +1289,8 @@ in the mode line, using \"+\" or \"-\" for ascending or descending order."
                                    nil t)))
      (list (if (string= "" scheme) nil (intern scheme))
            ;; like 'toggle in `define-derived-mode'
-           (or current-prefix-arg 'no-arg))))
+           (or current-prefix-arg 'no-arg)))
+   proced-mode)
 
   (setq proced-descend
         ;; If `proced-sort-interactive' is called repeatedly for the same
@@ -1290,37 +1311,37 @@ in the mode line, using \"+\" or \"-\" for ascending or descending order."
 (defun proced-sort-pcpu (&optional arg)
   "Sort Proced buffer by percentage CPU time (%CPU).
 Prefix ARG controls sort order, see `proced-sort-interactive'."
-  (interactive (list (or current-prefix-arg 'no-arg)))
+  (interactive (list (or current-prefix-arg 'no-arg)) proced-mode)
   (proced-sort-interactive 'pcpu arg))
 
 (defun proced-sort-pmem (&optional arg)
   "Sort Proced buffer by percentage memory usage (%MEM).
 Prefix ARG controls sort order, see `proced-sort-interactive'."
-  (interactive (list (or current-prefix-arg 'no-arg)))
+  (interactive (list (or current-prefix-arg 'no-arg)) proced-mode)
   (proced-sort-interactive 'pmem arg))
 
 (defun proced-sort-pid (&optional arg)
   "Sort Proced buffer by PID.
 Prefix ARG controls sort order, see `proced-sort-interactive'."
-  (interactive (list (or current-prefix-arg 'no-arg)))
+  (interactive (list (or current-prefix-arg 'no-arg)) proced-mode)
   (proced-sort-interactive 'pid arg))
 
 (defun proced-sort-start (&optional arg)
   "Sort Proced buffer by time the command started (START).
 Prefix ARG controls sort order, see `proced-sort-interactive'."
-  (interactive (list (or current-prefix-arg 'no-arg)))
+  (interactive (list (or current-prefix-arg 'no-arg)) proced-mode)
   (proced-sort-interactive 'start arg))
 
 (defun proced-sort-time (&optional arg)
   "Sort Proced buffer by CPU time (TIME).
 Prefix ARG controls sort order, see `proced-sort-interactive'."
-  (interactive (list (or current-prefix-arg 'no-arg)))
+  (interactive (list (or current-prefix-arg 'no-arg)) proced-mode)
   (proced-sort-interactive 'time arg))
 
 (defun proced-sort-user (&optional arg)
   "Sort Proced buffer by USER.
 Prefix ARG controls sort order, see `proced-sort-interactive'."
-  (interactive (list (or current-prefix-arg 'no-arg)))
+  (interactive (list (or current-prefix-arg 'no-arg)) proced-mode)
   (proced-sort-interactive 'user arg))
 
 (defun proced-sort-header (event &optional arg)
@@ -1329,7 +1350,7 @@ EVENT is a mouse event with starting position in the header line.
 It is converted to the corresponding attribute key.
 This command updates the variable `proced-sort'.
 Prefix ARG controls sort order, see `proced-sort-interactive'."
-  (interactive (list last-input-event (or last-prefix-arg 'no-arg)))
+  (interactive (list last-input-event (or last-prefix-arg 'no-arg)) proced-mode)
   (let* ((start (event-start event))
          (obj (posn-object start))
          col key)
@@ -1403,7 +1424,7 @@ Replace newline characters by \"^J\" (two characters)."
   ;; If none of the alternatives is non-nil, the attribute is ignored
   ;; in the listing.
   (let ((standard-attributes
-         (car (proced-process-attributes (list (emacs-pid)))))
+         (car (proced-process-attributes (list-system-processes))))
         new-format fmi)
     (if (and proced-tree-flag
              (assq 'ppid standard-attributes))
@@ -1535,7 +1556,8 @@ With prefix REVERT non-nil revert listing."
    (let ((scheme (completing-read "Format: "
                                   proced-format-alist nil t)))
      (list (if (string= "" scheme) nil (intern scheme))
-           current-prefix-arg)))
+           current-prefix-arg))
+   proced-mode)
   ;; only update if necessary
   (when (or (not (eq proced-format scheme)) revert)
     (setq proced-format scheme)
@@ -1567,7 +1589,7 @@ Suppress status information if QUIET is nil.
 After updating a displayed Proced buffer run the normal hook
 `proced-post-display-hook'."
   ;; This is the main function that generates and updates the process listing.
-  (interactive "P")
+  (interactive "P" proced-mode)
   (setq revert (or revert (not proced-process-alist)))
   (or quiet (message (if revert "Updating process information..."
                        "Updating process display...")))
@@ -1744,6 +1766,9 @@ The value returned is the value of the last form in BODY."
        (save-window-excursion
          ;; Analogous to `dired-pop-to-buffer'
          ;; Don't split window horizontally.  (Bug#1806)
+         ;; FIXME: `dired-pop-to-buffer' was removed and replaced with
+         ;;        `dired-mark-pop-up'.  Should we just use
+         ;;        `pop-to-buffer' here also?
          (display-buffer (current-buffer)
                          '(display-buffer-in-direction
                            (direction . bottom)
@@ -1773,11 +1798,12 @@ supported but discouraged.  It will be removed in a future version of Emacs."
            `(:annotation-function
              ,(lambda (s) (cdr (assoc s proced-signal-list))))))
      (proced-with-processes-buffer process-alist
-       (list (completing-read (concat "Send signal [" pnum
-                                      "] (default TERM): ")
+       (list (completing-read (format-prompt "Send signal [%s]"
+                                             "TERM" pnum)
                               proced-signal-list
                               nil nil nil nil "TERM")
-             process-alist))))
+             process-alist)))
+   proced-mode)
 
   (unless (and signal process-alist)
     ;; Discouraged usage (supported for backward compatibility):
@@ -1798,8 +1824,8 @@ supported but discouraged.  It will be removed in a future version of Emacs."
              `(:annotation-function
                ,(lambda (s) (cdr (assoc s proced-signal-list))))))
         (proced-with-processes-buffer process-alist
-          (setq signal (completing-read (concat "Send signal [" pnum
-                                                "] (default TERM): ")
+          (setq signal (completing-read (format-prompt "Send signal [%s]"
+                                                       "TERM" pnum)
                                         proced-signal-list
                                         nil nil nil nil "TERM"))))))
 
@@ -1816,7 +1842,8 @@ supported but discouraged.  It will be removed in a future version of Emacs."
           (dolist (process process-alist)
             (condition-case err
                 (unless (zerop (funcall
-                                proced-signal-function (car process) signal))
+                                proced-signal-function (car process) signal
+                                (file-remote-p default-directory)))
                   (proced-log "%s\n" (cdr process))
                   (push (cdr process) failures))
               (error ; catch errors from failed signals
@@ -1828,7 +1855,7 @@ supported but discouraged.  It will be removed in a future version of Emacs."
         (dolist (process process-alist)
           (with-temp-buffer
             (condition-case nil
-                (unless (zerop (call-process
+                (unless (zerop (process-file
                                 proced-signal-function nil t nil
                                 signal (number-to-string (car process))))
                   (proced-log (current-buffer))
@@ -1862,14 +1889,15 @@ the normal hook `proced-after-send-signal-hook'."
    (let ((process-alist (proced-marked-processes)))
      (proced-with-processes-buffer process-alist
        (list (read-number "New priority: ")
-             process-alist))))
+             process-alist)))
+   proced-mode)
   (if (numberp priority)
       (setq priority (number-to-string priority)))
   (let (failures)
     (dolist (process process-alist)
       (with-temp-buffer
         (condition-case nil
-            (unless (zerop (call-process
+            (unless (zerop (process-file
                             proced-renice-command nil t nil
                             priority (number-to-string (car process))))
               (proced-log (current-buffer))
@@ -1894,7 +1922,7 @@ the normal hook `proced-after-send-signal-hook'."
   "Pop up a buffer with error log output from Proced.
 A group of errors from a single command ends with a formfeed.
 Thus, use \\[backward-page] to find the beginning of a group of errors."
-  (interactive)
+  (interactive nil proced-mode)
   (if (get-buffer proced-log-buffer)
       (save-selected-window
         ;; move `proced-log-buffer' to the front of the buffer list
@@ -1946,7 +1974,7 @@ STRING is an overall summary of the failures."
 
 (defun proced-help ()
   "Provide help for the Proced user."
-  (interactive)
+  (interactive nil proced-mode)
   (proced-why)
   (if (eq last-command 'proced-help)
       (describe-mode)
@@ -1956,7 +1984,7 @@ STRING is an overall summary of the failures."
   "Undo in a Proced buffer.
 This doesn't recover killed processes, it just undoes changes in the Proced
 buffer.  You can use it to recover marks."
-  (interactive)
+  (interactive nil proced-mode)
   (let (buffer-read-only)
     (undo))
   (message "Change in Proced buffer undone.

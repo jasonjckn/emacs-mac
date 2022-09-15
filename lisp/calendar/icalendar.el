@@ -644,13 +644,13 @@ FIXME: multiple comma-separated values should be allowed!"
           ;; seconds present
           (setq second (read (substring isodatetimestring 13 15))))
 	;; FIXME: Support subseconds.
-        (when (and (> (length isodatetimestring) 15)
-                   ;; UTC specifier present
-                   (char-equal ?Z (aref isodatetimestring 15)))
-          (setq source-zone t
-                ;; decode to local time unless result-zone is explicitly given,
-                ;; i.e. do not decode to UTC, i.e. do not (setq result-zone t)
-                ))
+        (when (> (length isodatetimestring) 15)
+	  (pcase (aref isodatetimestring 15)
+            (?Z
+             (setq source-zone t))
+	    ((or ?- ?+)
+             (setq source-zone
+                   (concat "UTC" (substring isodatetimestring 15))))))
         ;; shift if necessary
         (if day-shift
             (let ((mdy (calendar-gregorian-from-absolute
@@ -1144,7 +1144,8 @@ FExport diary data into iCalendar file: ")
                                      (cdr contents-n-summary))))
                       (setq result (concat result header contents alarm
                                            "\nEND:VEVENT")))
-                    (if (consp cns-cons-or-list)
+                    (if (and (consp cns-cons-or-list)
+                             (not (listp (cdr cns-cons-or-list))))
                         (list cns-cons-or-list)
                       cns-cons-or-list)))
           ;; handle errors

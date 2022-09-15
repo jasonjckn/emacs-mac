@@ -692,7 +692,7 @@ system.")
 
 (defun auto-revert-notify-handler (event)
   "Handle an EVENT returned from file notification."
-  (with-demoted-errors
+  (with-demoted-errors "Error while auto-reverting: %S"
     (let* ((descriptor (car event))
 	   (action (nth 1 event))
 	   (file (nth 2 event))
@@ -800,7 +800,7 @@ This is an internal function used by Auto-Revert Mode."
     (when revert
       (when (and auto-revert-verbose
                  (not (eq revert 'fast)))
-        (message "Reverting buffer `%s'." (buffer-name)))
+        (message "Reverting buffer `%s'" (buffer-name)))
       ;; If point (or a window point) is at the end of the buffer, we
       ;; want to keep it at the end after reverting.  This allows one
       ;; to tail a file.

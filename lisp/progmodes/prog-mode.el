@@ -49,9 +49,15 @@
   (define-key-after menu [prog-separator] menu-bar-separator
     'middle-separator)
 
+  (unless (xref-forward-history-empty-p)
+    (define-key-after menu [xref-forward]
+      '(menu-item "Go Forward" xref-go-forward
+                  :help "Forward to the position gone Back from")
+      'prog-separator))
+
   (unless (xref-marker-stack-empty-p)
     (define-key-after menu [xref-pop]
-      '(menu-item "Go Back" xref-pop-marker-stack
+      '(menu-item "Go Back" xref-go-back
                   :help "Back to the position of the last search")
       'prog-separator))
 
@@ -94,11 +100,9 @@
 
   menu)
 
-(defvar prog-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map [?\C-\M-q] 'prog-indent-sexp)
-    map)
-  "Keymap used for programming modes.")
+(defvar-keymap prog-mode-map
+  :doc "Keymap used for programming modes."
+  "C-M-q" #'prog-indent-sexp)
 
 (defvar prog-indentation-context nil
   "When non-nil, provides context for indenting embedded code chunks.

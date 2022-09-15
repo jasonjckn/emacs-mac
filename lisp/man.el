@@ -168,13 +168,14 @@ pushy      -- make the manpage the current buffer in the current window
 bully      -- make the manpage the current buffer and only window (sf)
 aggressive -- make the manpage the current buffer in the other window (sf)
 friendly   -- display manpage in the other window but don't make current (sf)
+thrifty    -- reuse an existing manpage window if possible (sf)
 polite     -- don't display manpage, but prints message and beep when ready
 quiet      -- like `polite', but don't beep
 meek       -- make no indication that the manpage is ready
 
 Any other value of `Man-notify-method' is equivalent to `meek'."
   :type '(radio (const newframe) (const pushy) (const bully)
-		(const aggressive) (const friendly)
+		(const aggressive) (const friendly) (const thrifty)
 		(const polite) (const quiet) (const meek))
   :group 'man)
 
@@ -1229,6 +1230,11 @@ See the variable `Man-notify-method' for the different notification behaviors."
        (and (frame-live-p saved-frame)
             (select-frame saved-frame))
        (display-buffer man-buffer 'not-this-window))
+      ('thrifty
+       (and (frame-live-p saved-frame)
+            (select-frame saved-frame))
+       (display-buffer man-buffer '(display-buffer-reuse-mode-window
+                                    (mode . Man-mode))))
       ('polite
        (beep)
        (message "Manual buffer %s is ready" (buffer-name man-buffer)))
@@ -1241,8 +1247,7 @@ See the variable `Man-notify-method' for the different notification behaviors."
 (defun Man-softhyphen-to-minus ()
   ;; \255 is SOFT HYPHEN in Latin-N.  Versions of Debian man, at
   ;; least, emit it even when not in a Latin-N locale.
-  (unless (eq t (compare-strings "latin-" 0 nil
-				 current-language-environment 0 6 t))
+  (unless (string-prefix-p "latin-" current-language-environment t)
     (goto-char (point-min))
     (while (search-forward "­" nil t) (replace-match "-"))))
 
@@ -1334,7 +1339,7 @@ default type, `Man-xref-man-page' is used for the buttons."
 
 (defun Man-highlight-references0 (start-section regexp button-pos target type)
   ;; Based on `Man-build-references-alist'
-  (when (or (null start-section)        ;; Search regardless of sections.
+  (when (or (null start-section) ;; Search regardless of sections.
             ;; Section header is in this chunk.
             (Man-find-section start-section))
     (let ((end (if start-section
@@ -1347,18 +1352,24 @@ default type, `Man-xref-man-page' is used for the buttons."
 		 (goto-char (point-min))
 		 nil)))
       (while (re-search-forward regexp end t)
-	;; An overlay button is preferable because the underlying text
-	;; may have text property highlights (Bug#7881).
-	(make-button
-	 (match-beginning button-pos)
-	 (match-end button-pos)
-	 'type type
-	 'Man-target-string (cond
-			     ((numberp target)
-			      (match-string target))
-			     ((functionp target)
-			      target)
-			     (t nil)))))))
+        (let ((b (match-beginning button-pos))
+              (e (match-end button-pos))
+              (match (match-string button-pos)))
+          ;; Some lists of references end with ", and ...".  Chop the
+          ;; "and" bit off before making a button.
+          (when (string-match "\\`and +" match)
+            (setq b (+ b (- (match-end 0) (match-beginning 0)))))
+	  ;; An overlay button is preferable because the underlying text
+	  ;; may have text property highlights (Bug#7881).
+	  (make-button
+	   b e
+	   'type type
+	   'Man-target-string (cond
+			       ((numberp target)
+			        (match-string target))
+			       ((functionp target)
+			        target)
+			       (t nil))))))))
 
 (defun Man-cleanup-manpage (&optional interactive)
   "Remove overstriking and underlining from the current buffer.
@@ -1786,7 +1797,7 @@ Returns t if section is found, nil otherwise."
                        Man--last-section
                      (car Man--sections)))
           (completion-ignore-case t)
-          (prompt (concat "Go to section (default " default "): "))
+          (prompt (format-prompt "Go to section" default))
           (chosen (completing-read prompt Man--sections
                                    nil nil nil nil default)))
      (list chosen))
@@ -1850,7 +1861,7 @@ Specify which REFERENCE to use; default is based on word at point."
 	     (defaults
 	       (mapcar 'substring-no-properties
                        (cons default Man--refpages)))
-	     (prompt (concat "Refer to (default " default "): "))
+             (prompt (format-prompt "Refer to" default))
 	     (chosen (completing-read prompt Man--refpages
 				      nil nil nil nil defaults)))
         chosen)))
@@ -1969,6 +1980,34 @@ Uses `Man-name-local-regexp'."
       (accept-process-output proc))
     (bookmark-default-handler
      `("" (buffer . ,buf) . ,(bookmark-get-bookmark-record bookmark)))))
+
+(put 'Man-bookmark-jump 'bookmark-handler-type "Man")
+
+;;; Mouse support
+(defun Man-at-mouse (e)
+  "Open man manual at point."
+  (interactive "e")
+  (save-excursion
+    (mouse-set-point e)
+    (man (Man-default-man-entry))))
+
+;;;###autoload
+(defun Man-context-menu (menu click)
+  "Populate MENU with commands that open a man page at point."
+  (save-excursion
+    (mouse-set-point click)
+    (when (save-excursion
+            (skip-syntax-backward "^ ")
+            (and (looking-at
+                  "[[:space:]]*\\([[:alnum:]_-]+([[:alnum:]]+)\\)")
+                 (match-string 1)))
+      (define-key-after menu [man-separator] menu-bar-separator
+        'middle-separator)
+      (define-key-after menu [man-at-mouse]
+        '(menu-item "Open man page" Man-at-mouse
+                    :help "Open man page around mouse click")
+        'man-separator)))
+  menu)
 
 
 ;; Init the man package variables, if not already done.

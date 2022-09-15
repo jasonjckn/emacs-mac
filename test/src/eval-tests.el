@@ -86,23 +86,27 @@ Bug#24912."
 
 (ert-deftest eval-tests--if-dot-string ()
   "Check that Emacs rejects (if . \"string\")."
-  (should-error (eval '(if . "abc")) :type 'wrong-type-argument)
+  (should-error (eval '(if . "abc") nil) :type 'wrong-type-argument)
+  (should-error (eval '(if . "abc") t) :type 'wrong-type-argument)
   (let ((if-tail (list '(setcdr if-tail "abc") t)))
-    (should-error (eval (cons 'if if-tail))))
+    (should-error (eval (cons 'if if-tail) nil) :type 'void-variable)
+    (should-error (eval (cons 'if if-tail) t) :type 'void-variable))
   (let ((if-tail (list '(progn (setcdr if-tail "abc") nil) t)))
-    (should-error (eval (cons 'if if-tail)))))
+    (should-error (eval (cons 'if if-tail) nil) :type 'void-variable)
+    (should-error (eval (cons 'if if-tail) t) :type 'void-variable)))
 
 (ert-deftest eval-tests--let-with-circular-defs ()
   "Check that Emacs reports an error for (let VARS ...) when VARS is circular."
   (let ((vars (list 'v)))
     (setcdr vars vars)
     (dolist (let-sym '(let let*))
-      (should-error (eval (list let-sym vars))))))
+      (should-error (eval (list let-sym vars) nil)))))
 
 (ert-deftest eval-tests--mutating-cond ()
   "Check that Emacs doesn't crash on a cond clause that mutates during eval."
   (let ((clauses (list '((progn (setcdr clauses "ouch") nil)))))
-    (should-error (eval (cons 'cond clauses)))))
+    (should-error (eval (cons 'cond clauses) nil))
+    (should-error (eval (cons 'cond clauses) t))))
 
 (defun eval-tests--exceed-specbind-limit ()
   (defvar eval-tests--var1)
@@ -179,12 +183,13 @@ are found on the stack and therefore not garbage collected."
   "Remove the Lisp reference to the byte-compiled object."
   (setf (symbol-function #'eval-tests-33014-func) nil))
 
-(defun eval-tests-19790-backquote-comma-dot-substitution ()
+(ert-deftest eval-tests-19790-backquote-comma-dot-substitution ()
   "Regression test for Bug#19790.
 Don't handle destructive splicing in backquote expressions (like
 in Common Lisp).  Instead, make sure substitution in backquote
 expressions works for identifiers starting with period."
-  (should (equal (let ((.x 'identity)) (eval `(,.x 'ok))) 'ok)))
+  (should (equal (let ((.x 'identity)) (eval `(,.x 'ok) nil)) 'ok))
+  (should (equal (let ((.x 'identity)) (eval `(,.x 'ok) t)) 'ok)))
 
 (ert-deftest eval-tests/backtrace-in-batch-mode ()
   (let ((emacs (expand-file-name invocation-name invocation-directory)))
@@ -234,5 +239,32 @@ expressions works for identifiers starting with period."
       (goto-char (point-min))
       (should (equal (string-trim (buffer-string))
                      "Error: (error \"Boo\")")))))
+
+(ert-deftest eval-tests/funcall-with-delayed-message ()
+  ;; Check that `funcall-with-delayed-message' displays its message before
+  ;; its function terminates iff the timeout is short enough.
+
+  ;; This also serves as regression test for bug#55628 where a short
+  ;; timeout was rounded up to the next whole second.
+  (dolist (params '((0.8 0.4)
+                    (0.1 0.8)))
+    (let ((timeout (nth 0 params))
+          (work-time (nth 1 params)))
+      (ert-info ((prin1-to-string params) :prefix "params: ")
+        (with-current-buffer "*Messages*"
+          (let ((inhibit-read-only t))
+            (erase-buffer))
+          (let ((stop (+ (float-time) work-time)))
+            (funcall-with-delayed-message
+             timeout "timed out"
+             (lambda ()
+               (while (< (float-time) stop))
+               (message "finished"))))
+          (let ((expected-messages
+                 (if (< timeout work-time)
+                     "timed out\nfinished"
+                   "finished")))
+            (should (equal (string-trim (buffer-string))
+                           expected-messages))))))))
 
 ;;; eval-tests.el ends here

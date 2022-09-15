@@ -192,6 +192,9 @@ s/@PACKAGE@/emacs/
 /^GL_GNULIB_TIMEGM *=/s/@GL_GNULIB_TIMEGM@/1/
 /^GL_GNULIB_TIME_RZ *=/s/@GL_GNULIB_TIME_RZ@/1/
 /^GL_GNULIB_UNSETENV *=/s/@GL_GNULIB_UNSETENV@/1/
+# Apparently without this `rawmemchr' isn't declared, so
+# we get warnings building canonicalize-lgpl.o
+/^GL_GNULIB_RAWMEMCHR *=/s/@GL_GNULIB_RAWMEMCHR@/1/
 /^GL_GNULIB_[^ =]* *= *@/s/@[^@\n]*@/0/
 /^GL_GSETTINGS_CFLAGS *=/s/@[^@\n]*@//
 /^GL_GSETTINGS_LIBS *=/s/@[^@\n]*@//
@@ -271,6 +274,8 @@ s/@PACKAGE@/emacs/
 # MKDIR_P lines are edited further below
 # MKDIR_P is only used to create lib/malloc, and the folder is
 # already present in the distribution, so this should work fine.
+# (No longer true as of Emacs 29, but the directories we need
+# are created in config.bat!)
 /^MKDIR_P *=/s/@MKDIR_P@/echo/
 /^NEXT_AS_FIRST_DIRECTIVE_DIRENT_H *=/s/@[^@\n]*@/<dirent.h>/
 /^NEXT_AS_FIRST_DIRECTIVE_ERRNO_H *=/s/@[^@\n]*@//
@@ -328,6 +333,7 @@ s/@PACKAGE@/emacs/
 /^LIMITS_H *=/s/@[^@\n]*@/limits.h/
 /^IEEE754_H *=/s/@[^@\n]*@/ieee754.h/
 /^STDALIGN_H *=/s/@[^@\n]*@/stdalign.h/
+/^STDCKDINT_H *=/s/@[^@\n]*@/stdckdint.h/
 /^STDDEF_H *=/s/@[^@\n]*@/stddef.h/
 /^STDINT_H *=/s/@[^@\n]*@/stdint.h/
 /^SYS_TIME_H_DEFINES_STRUCT_TIMESPEC *=/s/@[^@\n]*@/0/
@@ -406,18 +412,22 @@ s/^	-*test -z.*|| rm/	 -rm/
 s/@echo /@djecho /
 #
 # Determine which headers to generate
-s/= @GL_GENERATE_ALLOCA_H_TRUE@/= 1/
-s/= @GL_GENERATE_BYTESWAP_H@/= 1/
-s/= @GL_GENERATE_EXECINFO_H@/= 1/
-s/= @GL_GENERATE_IEEE754_H@/= 1/
-s/= @GL_GENERATE_STDALIGN_H@/= 1/
-s/= @GL_GENERATE_STDDEF_H@/= 1/
-s/= @GL_GENERATE_STDINT_H@/= 1/
-s/= @GL_GENERATE_LIMITS_H@/= 1/
-s/= @GL_GENERATE_ERRNO_H@/= /
-s/= @GL_GENERATE_LIMITS_H@/= /
-s/= @GL_GENERATE_GMP_GMP_H@/= 1/
-s/= @GL_GENERATE_MINI_GMP_H@/= 1/
+s/= @GL_GENERATE_ALLOCA_H_CONDITION@/= 1/
+s/= @GL_GENERATE_BYTESWAP_H_CONDITION@/= 1/
+s/= @GL_GENERATE_EXECINFO_H_CONDITION@/= 1/
+s/= @GL_GENERATE_IEEE754_H_CONDITION@/= 1/
+s/= @GL_GENERATE_STDALIGN_H_CONDITION@/= 1/
+s/= @GL_GENERATE_STDDEF_H_CONDITION@/= 1/
+s/= @GL_GENERATE_STDINT_H_CONDITION@/= 1/
+s/= @GL_GENERATE_LIMITS_H_CONDITION@/= 1/
+s/= @GL_GENERATE_ERRNO_H_CONDITION@/= /
+s/= @GL_GENERATE_LIMITS_H_CONDITION@/= /
+s/= @GL_GENERATE_GMP_H_CONDITION@/= 1/
+s/= @GL_GENERATE_GMP_GMP_H_CONDITION@/= /
+s/= @GL_GENERATE_MINI_GMP_H_CONDITION@/= 1/
+s/= @GL_GENERATE_STDCKDINT_H_CONDITION@/= 1/
+s/= @GL_COND_OBJ_STDIO_READ_CONDITION@/= /
+s/= @GL_COND_OBJ_STDIO_WRITE_CONDITION@/= /
 s/\$\(MKDIR_P\) malloc//
 #
 # Determine which modules to build and which to omit
@@ -429,7 +439,6 @@ OMIT_GNULIB_MODULE_careadlinkat = true\
 OMIT_GNULIB_MODULE_cloexec = true\
 OMIT_GNULIB_MODULE_dirent = true\
 OMIT_GNULIB_MODULE_dirfd = true\
-OMIT_GNULIB_MODULE_scratch_buffer = true\
 OMIT_GNULIB_MODULE_dup2 = true\
 OMIT_GNULIB_MODULE_errno = true\
 OMIT_GNULIB_MODULE_euidaccess = true\
@@ -445,6 +454,7 @@ OMIT_GNULIB_MODULE_group-member = true\
 OMIT_GNULIB_MODULE_inttypes-incomplete = true\
 OMIT_GNULIB_MODULE_localtime-buffer = true\
 OMIT_GNULIB_MODULE_lstat = true\
+OMIT_GNULIB_MODULE_nanosleep = true\
 OMIT_GNULIB_MODULE_open = true\
 OMIT_GNULIB_MODULE_pipe2 = true\
 OMIT_GNULIB_MODULE_pselect = true\

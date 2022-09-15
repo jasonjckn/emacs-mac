@@ -211,14 +211,6 @@
 ;;
 ;;;;;;;;
 ;;
-;; I think the LCD is no longer being updated, but if it were, this
-;; would be a proper LCD record.  There is an old version of
-;; feedmail.el in the LCD archive.  It works but is missing a lot of
-;; features.
-;;
-;; LCD record:
-;; feedmail|WJCarpenter|bill-feedmail@carpenter.ORG|Outbound mail queue handling|01-??-??|11-beta-??|feedmail.el
-;;
 ;; Change log:
 ;; original,      31 March 1991
 ;; patchlevel 1,   5 April 1991
@@ -1317,7 +1309,7 @@ feedmail-queue-buffer-file-name is restored to nil.
 
 Example advice for mail-send:
 
-    (advice-add 'mail-send :around #'my-feedmail-mail-send-advice)
+    (advice-add \\='mail-send :around #\\='my-feedmail-mail-send-advice)
     (defun my-feedmail-mail-send-advice (orig-fun &rest args)
       (let ((feedmail-queue-buffer-file-name buffer-file-name)
              (buffer-file-name nil))
@@ -1619,7 +1611,8 @@ local gurus."
 		 (if (null mail-interactive) '("-oem" "-odb")))))
 
 (declare-function smtpmail-via-smtp "smtpmail"
-		  (recipient smtpmail-text-buffer &optional ask-for-password))
+		  (recipient smtpmail-text-buffer &optional ask-for-password
+                             send-attempts))
 (defvar smtpmail-smtp-server)
 
 ;; provided by jam@austin.asc.slb.com (James A. McLaughlin);
@@ -1742,7 +1735,7 @@ applied to a file after you've just read it from disk: for example, a
 feedmail FQM message file from a queue.  You could use something like
 this:
 
-    (add-to-list 'auto-mode-alist \\='(\"\\\\.fqm\\\\\\='\" . feedmail-vm-mail-mode))"
+    (add-to-list \\='auto-mode-alist \\='(\"\\\\.fqm\\\\\\='\" . feedmail-vm-mail-mode))"
   (feedmail-say-debug ">in-> feedmail-vm-mail-mode")
   (let ((the-buf (current-buffer)))
     (vm-mail)
@@ -2336,19 +2329,14 @@ mapped to mostly alphanumerics for safety."
 
 ;; from a similar function in mail-utils.el
 (defun feedmail-rfc822-time-zone (time)
+  (declare (obsolete format-time-string "29.1"))
   (feedmail-say-debug ">in-> feedmail-rfc822-time-zone %s" time)
-  (let* ((sec (or (car (current-time-zone time)) 0))
-	 (absmin (/ (abs sec) 60)))
-    (format "%c%02d%02d" (if (< sec 0) ?- ?+) (/ absmin 60) (% absmin 60))))
+  (format-time-string "%z" time))
 
 (defun feedmail-rfc822-date (arg-time)
   (feedmail-say-debug ">in-> feedmail-rfc822-date %s" arg-time)
-  (let ((time (or arg-time (current-time)))
-	(system-time-locale "C"))
-    (concat
-     (format-time-string "%a, %e %b %Y %T " time)
-     (feedmail-rfc822-time-zone time)
-     )))
+  (let ((system-time-locale "C"))
+    (format-time-string "%a, %e %b %Y %T %z" arg-time)))
 
 (defun feedmail-send-it-immediately-wrapper ()
   "Wrapper to catch skip-me-i."
@@ -2847,10 +2835,9 @@ probably not appropriate for you."
     (if (and (not feedmail-queue-use-send-time-for-message-id) maybe-file)
 	(setq date-time (file-attribute-modification-time
 			 (file-attributes maybe-file))))
-    (format "<%d-%s%s%s>"
+    (format "<%d-%s%s>"
 	    (mod (random) 10000)
-	    (format-time-string "%a%d%b%Y%H%M%S" date-time)
-	    (feedmail-rfc822-time-zone date-time)
+	    (format-time-string "%a%d%b%Y%H%M%S%z" date-time)
 	    end-stuff))
   )
 

@@ -135,45 +135,35 @@ function `tab-line-tab-face-group'."
   :group 'tab-line-faces)
 
 
-(defvar tab-line-tab-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map [tab-line down-mouse-1] 'tab-line-select-tab)
-    (define-key map [tab-line mouse-2] 'tab-line-close-tab)
-    (define-key map [tab-line down-mouse-3] 'tab-line-tab-context-menu)
-    (define-key map "\C-m" 'tab-line-select-tab)
-    map)
-  "Local keymap for `tab-line-mode' window tabs.")
+(defvar-keymap tab-line-tab-map
+  :doc "Local keymap for `tab-line-mode' window tabs."
+  "<tab-line> <down-mouse-1>" #'tab-line-select-tab
+  "<tab-line> <mouse-2>"      #'tab-line-close-tab
+  "<tab-line> <down-mouse-3>" #'tab-line-tab-context-menu
+  "RET" #'tab-line-select-tab)
 
-(defvar tab-line-add-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map [tab-line down-mouse-1] 'tab-line-new-tab)
-    (define-key map [tab-line down-mouse-2] 'tab-line-new-tab)
-    (define-key map "\C-m" 'tab-line-new-tab)
-    map)
-  "Local keymap to add `tab-line-mode' window tabs.")
+(defvar-keymap tab-line-add-map
+  :doc "Local keymap to add `tab-line-mode' window tabs."
+  "<tab-line> <down-mouse-1>" #'tab-line-new-tab
+  "<tab-line> <down-mouse-2>" #'tab-line-new-tab
+  "RET" #'tab-line-new-tab)
 
-(defvar tab-line-tab-close-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map [tab-line mouse-1] 'tab-line-close-tab)
-    (define-key map [tab-line mouse-2] 'tab-line-close-tab)
-    map)
-  "Local keymap to close `tab-line-mode' window tabs.")
+(defvar-keymap tab-line-tab-close-map
+  :doc "Local keymap to close `tab-line-mode' window tabs."
+  "<tab-line> <mouse-1>" #'tab-line-close-tab
+  "<tab-line> <mouse-2>" #'tab-line-close-tab)
 
-(defvar tab-line-left-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map [tab-line down-mouse-1] 'tab-line-hscroll-left)
-    (define-key map [tab-line down-mouse-2] 'tab-line-hscroll-left)
-    (define-key map "\C-m" 'tab-line-new-tab)
-    map)
-  "Local keymap to scroll `tab-line-mode' window tabs to the left.")
+(defvar-keymap tab-line-left-map
+  :doc "Local keymap to scroll `tab-line-mode' window tabs to the left."
+  "<tab-line> <down-mouse-1>" #'tab-line-hscroll-left
+  "<tab-line> <down-mouse-2>" #'tab-line-hscroll-left
+  "RET" #'tab-line-new-tab)
 
-(defvar tab-line-right-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map [tab-line down-mouse-1] 'tab-line-hscroll-right)
-    (define-key map [tab-line down-mouse-2] 'tab-line-hscroll-right)
-    (define-key map "\C-m" 'tab-line-new-tab)
-    map)
-  "Local keymap to scroll `tab-line-mode' window tabs to the right.")
+(defvar-keymap tab-line-right-map
+  :doc "Local keymap to scroll `tab-line-mode' window tabs to the right."
+  "<tab-line> <down-mouse-1>" #'tab-line-hscroll-right
+  "<tab-line> <down-mouse-2>" #'tab-line-hscroll-right
+  "RET" #'tab-line-new-tab)
 
 
 (defcustom tab-line-new-tab-choice t
@@ -288,7 +278,7 @@ variable `tab-line-tab-name-function'."
   "Maximum length of the tab name from the current buffer.
 Effective when `tab-line-tab-name-function' is customized
 to `tab-line-tab-name-truncated-buffer'."
-  :type 'integer
+  :type 'natnum
   :group 'tab-line
   :version "27.1")
 
@@ -486,7 +476,7 @@ which the tab will represent."
                    (funcall tab-line-tab-name-function tab tabs)
                  (cdr (assq 'name tab))))
          (face (if selected-p
-                   (if (eq (selected-window) (old-selected-window))
+                   (if (mode-line-window-selected-p)
                        'tab-line-tab-current
                      'tab-line-tab)
                  'tab-line-tab-inactive)))
@@ -495,6 +485,8 @@ which the tab will represent."
     (apply 'propertize
            (concat (propertize name
                                'keymap tab-line-tab-map
+                               'help-echo (if selected-p "Current tab"
+                                            "Click to select tab")
                                ;; Don't turn mouse-1 into mouse-2 (bug#49247)
                                'follow-link 'ignore)
                    (or (and (or buffer-p (assq 'buffer tab) (assq 'close tab))
@@ -556,8 +548,9 @@ inherit from `tab-line-tab-inactive-alternate'.  For use in
 When TAB is a non-file-visiting buffer, make FACE inherit from
 `tab-line-tab-special'.  For use in
 `tab-line-tab-face-functions'."
-  (when (and buffer-p (not (buffer-file-name tab)))
-    (setf face `(:inherit (tab-line-tab-special ,face))))
+  (let ((buffer (if buffer-p tab (cdr (assq 'buffer tab)))))
+    (when (and buffer (not (buffer-file-name buffer)))
+      (setf face `(:inherit (tab-line-tab-special ,face)))))
   face)
 
 (defun tab-line-tab-face-modified (tab _tabs face buffer-p _selected-p)
@@ -565,8 +558,9 @@ When TAB is a non-file-visiting buffer, make FACE inherit from
 When TAB is a modified, file-backed buffer, make FACE inherit
 from `tab-line-tab-modified'.  For use in
 `tab-line-tab-face-functions'."
-  (when (and buffer-p (buffer-file-name tab) (buffer-modified-p tab))
-    (setf face `(:inherit (tab-line-tab-modified ,face))))
+  (let ((buffer (if buffer-p tab (cdr (assq 'buffer tab)))))
+    (when (and buffer (buffer-file-name buffer) (buffer-modified-p buffer))
+      (setf face `(:inherit (tab-line-tab-modified ,face)))))
   face)
 
 (defun tab-line-tab-face-group (tab _tabs face _buffer-p _selected-p)
@@ -587,7 +581,7 @@ For use in `tab-line-tab-face-functions'."
                           ;; handle tab-line scrolling
                           (window-parameter nil 'tab-line-hscroll)
                           ;; for setting face 'tab-line-tab-current'
-                          (eq (selected-window) (old-selected-window))
+                          (mode-line-window-selected-p)
                           (and (memq 'tab-line-tab-face-modified
                                      tab-line-tab-face-functions)
                                (buffer-file-name) (buffer-modified-p))))
@@ -798,7 +792,9 @@ Its effect is the same as using the `previous-buffer' command
     (if (eq tab-line-tabs-function #'tab-line-tabs-window-buffers)
         (switch-to-prev-buffer window)
       (with-selected-window (or window (selected-window))
-        (let* ((tabs (funcall tab-line-tabs-function))
+        (let* ((tabs (seq-filter
+                      (lambda (tab) (or (bufferp tab) (assq 'buffer tab)))
+                      (funcall tab-line-tabs-function)))
                (pos (seq-position
                      tabs (current-buffer)
                      (lambda (tab buffer)
@@ -822,7 +818,9 @@ Its effect is the same as using the `next-buffer' command
     (if (eq tab-line-tabs-function #'tab-line-tabs-window-buffers)
         (switch-to-next-buffer window)
       (with-selected-window (or window (selected-window))
-        (let* ((tabs (funcall tab-line-tabs-function))
+        (let* ((tabs (seq-filter
+                      (lambda (tab) (or (bufferp tab) (assq 'buffer tab)))
+                      (funcall tab-line-tabs-function)))
                (pos (seq-position
                      tabs (current-buffer)
                      (lambda (tab buffer)
@@ -899,7 +897,14 @@ sight of the tab line."
 (define-minor-mode tab-line-mode
   "Toggle display of tab line in the windows displaying the current buffer."
   :lighter nil
-  (setq tab-line-format (when tab-line-mode '(:eval (tab-line-format)))))
+  (let ((default-value '(:eval (tab-line-format))))
+    (if tab-line-mode
+        ;; Preserve the existing tab-line set outside of this mode
+        (unless tab-line-format
+          (setq tab-line-format default-value))
+      ;; Reset only values set by this mode
+      (when (equal tab-line-format default-value)
+        (setq tab-line-format nil)))))
 
 (defcustom tab-line-exclude-modes
   '(completion-list-mode)

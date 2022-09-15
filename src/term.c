@@ -1358,7 +1358,7 @@ term_get_fkeys_1 (void)
       char *sequence = tgetstr (keys[i].cap, address);
       if (sequence)
 	Fdefine_key (KVAR (kboard, Vinput_decode_map), build_string (sequence),
-		     make_vector (1, intern (keys[i].name)));
+		     make_vector (1, intern (keys[i].name)), Qnil);
     }
 
   /* The uses of the "k0" capability are inconsistent; sometimes it
@@ -1377,13 +1377,13 @@ term_get_fkeys_1 (void)
 	  /* Define f0 first, so that f10 takes precedence in case the
 	     key sequences happens to be the same.  */
 	  Fdefine_key (KVAR (kboard, Vinput_decode_map), build_string (k0),
-		       make_vector (1, intern ("f0")));
+		       make_vector (1, intern ("f0")), Qnil);
 	Fdefine_key (KVAR (kboard, Vinput_decode_map), build_string (k_semi),
-		     make_vector (1, intern ("f10")));
+		     make_vector (1, intern ("f10")), Qnil);
       }
     else if (k0)
       Fdefine_key (KVAR (kboard, Vinput_decode_map), build_string (k0),
-		   make_vector (1, intern (k0_name)));
+		   make_vector (1, intern (k0_name)), Qnil);
   }
 
   /* Set up cookies for numbered function keys above f10. */
@@ -1405,8 +1405,10 @@ term_get_fkeys_1 (void)
 	  if (sequence)
 	    {
 	      sprintf (fkey, "f%d", i);
-	      Fdefine_key (KVAR (kboard, Vinput_decode_map), build_string (sequence),
-			   make_vector (1, intern (fkey)));
+	      Fdefine_key (KVAR (kboard, Vinput_decode_map),
+			   build_string (sequence),
+			   make_vector (1, intern (fkey)),
+			   Qnil);
 	    }
 	}
       }
@@ -1422,7 +1424,7 @@ term_get_fkeys_1 (void)
 	  char *sequence = tgetstr (cap2, address);			\
 	  if (sequence)                                                 \
 	    Fdefine_key (KVAR (kboard, Vinput_decode_map), build_string (sequence), \
-			 make_vector (1, intern (sym)));		\
+			 make_vector (1, intern (sym)), Qnil);		\
 	}
 
       /* if there's no key_next keycap, map key_npage to `next' keysym */
@@ -1630,9 +1632,13 @@ produce_glyphs (struct it *it)
     }
   else
     {
-      Lisp_Object charset_list = FRAME_TERMINAL (it->f)->charset_list;
+      struct terminal *t = FRAME_TERMINAL (it->f);
+      Lisp_Object charset_list = t->charset_list, char_glyph;
 
-      if (char_charset (it->char_to_display, charset_list, NULL))
+      if (char_charset (it->char_to_display, charset_list, NULL)
+	  && (char_glyph = terminal_glyph_code (t, it->char_to_display),
+	      NILP (char_glyph)
+	      || (FIXNUMP (char_glyph) && XFIXNUM (char_glyph) >= 0)))
 	{
 	  it->pixel_width = CHARACTER_WIDTH (it->char_to_display);
 	  it->nglyphs = it->pixel_width;
@@ -1856,12 +1862,24 @@ produce_glyphless_glyph (struct it *it, Lisp_Object acronym)
 	    acronym = CHAR_TABLE_REF (Vglyphless_char_display, it->c);
 	  if (CONSP (acronym))
 	    acronym = XCDR (acronym);
-	  buf[0] = '[';
 	  str = STRINGP (acronym) ? SSDATA (acronym) : "";
-	  for (len = 0; len < 6 && str[len] && ASCII_CHAR_P (str[len]); len++)
-	    buf[1 + len] = str[len];
-	  buf[1 + len] = ']';
-	  len += 2;
+	  /* A special kludgey feature for single-character acronyms:
+	     don't put them in a box, effectively treating them as a
+	     replacement character.  */
+	  if (STRINGP (acronym) && SCHARS (acronym) == 1)
+	    {
+	      buf[0] = str[0];
+	      len = 1;
+	    }
+	  else
+	    {
+	      buf[0] = '[';
+	      for (len = 0;
+		   len < 6 && str[len] && ASCII_CHAR_P (str[len]); len++)
+		buf[1 + len] = str[len];
+	      buf[1 + len] = ']';
+	      len += 2;
+	    }
 	}
       else
 	{
@@ -2281,9 +2299,9 @@ A suspended tty may be resumed by calling `resume-tty' on it.  */)
       delete_keyboard_wait_descriptor (fileno (f));
 
 #ifndef MSDOS
-      fclose (f);
       if (f != t->display_info.tty->output)
         fclose (t->display_info.tty->output);
+      fclose (f);
 #endif
 
       t->display_info.tty->input = 0;
@@ -3498,7 +3516,7 @@ tty_menu_show (struct frame *f, int x, int y, int menuflags,
   int dispwidth, dispheight;
   int i, j, lines, maxlines;
   int maxwidth;
-  ptrdiff_t specpdl_count;
+  specpdl_ref specpdl_count;
 
   eassert (FRAME_TERMCAP_P (f));
 
@@ -4152,10 +4170,12 @@ use the Bourne shell command 'TERM=...; export TERM' (C-shell:\n\
 	       could return 32767.  */
 	    tty->TN_max_colors = 16777216;
 	  }
-	/* Fall back to xterm+direct (semicolon version) if requested
-	   by the COLORTERM environment variable.  */
-	else if ((bg = getenv("COLORTERM")) != NULL
-		 && strcasecmp(bg, "truecolor") == 0)
+	/* Fall back to xterm+direct (semicolon version) if Tc is set
+	   (de-facto standard introduced by tmux) or if	requested by
+	   the COLORTERM environment variable.  */
+	else if ((tigetflag ("Tc") > 0)
+		 || ((bg = getenv ("COLORTERM")) != NULL
+		     && strcasecmp (bg, "truecolor") == 0))
 	  {
 	    tty->TS_set_foreground = "\033[%?%p1%{8}%<%t3%p1%d%e38;2;%p1%{65536}%/%d;%p1%{256}%/%{255}%&%d;%p1%{255}%&%d%;m";
 	    tty->TS_set_background = "\033[%?%p1%{8}%<%t4%p1%d%e48;2;%p1%{65536}%/%d;%p1%{256}%/%{255}%&%d;%p1%{255}%&%d%;m";

@@ -220,8 +220,8 @@ to MODIFY A FILE WITHOUT YOUR CONFIRMATION when \"it seems necessary\"."
   "List of special targets.
 You will be offered to complete on one of those in the minibuffer whenever
 you enter a \".\" at the beginning of a line in `makefile-mode'."
-  :type '(repeat string))
-(put 'makefile-special-targets-list 'risky-local-variable t)
+  :type '(repeat string)
+  :risky t)
 
 (defcustom makefile-runtime-macros-list
   '(("@") ("&") (">") ("<") ("*") ("^") ("+") ("?") ("%") ("$"))
@@ -542,8 +542,8 @@ not be enclosed in { } or ( )."
 This should identify a `make' command that can handle the `-q' option."
   :type 'string)
 
-(defvaralias 'makefile-query-one-target-method
-  'makefile-query-one-target-method-function)
+(define-obsolete-variable-alias 'makefile-query-one-target-method
+  'makefile-query-one-target-method-function "29.1")
 
 (defcustom makefile-query-one-target-method-function
   'makefile-query-by-make-minus-q
@@ -1170,7 +1170,6 @@ and adds all qualifying names to the list of known targets."
                       (goto-char (match-end 0))
                     (insert suffix))))))))
 
-(define-obsolete-function-alias 'makefile-complete 'completion-at-point "24.1")
 
 
 ;; Backslashification.  Stolen from cc-mode.el.

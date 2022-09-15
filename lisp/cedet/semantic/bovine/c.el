@@ -437,8 +437,8 @@ I think it just returns t/nil dependent on if VAR has been defined."
         (progn
           (semantic-push-parser-warning
 	   (format "Skip %s" (buffer-substring-no-properties
-			      (point-at-bol) (point-at-eol)))
-	   (point-at-bol) (point-at-eol))
+                              (line-beginning-position) (line-end-position)))
+           (line-beginning-position) (line-end-position))
           nil)
       t)))
 
@@ -501,8 +501,10 @@ code to parse."
 
 	;; The if indicates to skip this preprocessor section
 	(let () ;; (pt nil)
-	  (semantic-push-parser-warning (format "Skip %s" (buffer-substring-no-properties (point-at-bol) (point-at-eol)))
-					(point-at-bol) (point-at-eol))
+          (semantic-push-parser-warning (format "Skip %s" (buffer-substring-no-properties
+                                                           (line-beginning-position)
+                                                           (line-end-position)))
+                                        (line-beginning-position) (line-end-position))
 	  (beginning-of-line)
 	  ;; (setq pt (point))
 	  ;; This skips only a section of a conditional.  Once that section
@@ -1466,36 +1468,32 @@ Override function for `semantic-tag-protection'."
 	(prot nil))
     ;; Check the modifiers for protection if we are not a child
     ;; of some class type.
-    (when (or (not parent) (not (eq (semantic-tag-class parent) 'type)))
-      (while (and (not prot) mods)
-	(if (stringp (car mods))
-	    (let ((s (car mods)))
-	      ;; A few silly defaults to get things started.
-	      (cond ((or (string= s "extern")
-			 (string= s "export"))
-		     'public)
-		    ((string= s "static")
-		     'private))))
-	(setq mods (cdr mods))))
-    ;; If we have a typed parent, look for :public style labels.
-    (when (and parent (eq (semantic-tag-class parent) 'type))
+    (if (not (and parent (eq (semantic-tag-class parent) 'type)))
+	(while (and (not prot) mods)
+	  (if (stringp (car mods))
+	      (let ((s (car mods)))
+	        ;; A few silly defaults to get things started.
+	        (setq prot (pcase s
+			     ((or "extern" "export") 'public)
+			     ("static" 'private)))))
+	  (setq mods (cdr mods)))
+      ;; If we have a typed parent, look for :public style labels.
       (let ((pp (semantic-tag-type-members parent)))
 	(while (and pp (not (semantic-equivalent-tag-p (car pp) tag)))
 	  (when (eq (semantic-tag-class (car pp)) 'label)
 	    (setq prot
-		  (cond ((string= (semantic-tag-name (car pp)) "public")
-			 'public)
-			((string= (semantic-tag-name (car pp)) "private")
-			 'private)
-			((string= (semantic-tag-name (car pp)) "protected")
-			 'protected)))
+		  (pcase (semantic-tag-name (car pp))
+		    ("public" 'public)
+		    ("private" 'private)
+		    ("protected" 'protected)))
 	    )
 	  (setq pp (cdr pp)))))
     (when (and (not prot) (eq (semantic-tag-class parent) 'type))
       (setq prot
-	    (cond ((string= (semantic-tag-type parent) "class") 'private)
-		  ((string= (semantic-tag-type parent) "struct") 'public)
-		  (t 'unknown))))
+	    (pcase (semantic-tag-type parent)
+	      ("class" 'private)
+	      ("struct" 'public)
+	      (_ 'unknown))))
     (or prot
 	(if (and parent (semantic-tag-of-class-p parent 'type))
 	    'public

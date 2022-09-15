@@ -50,7 +50,7 @@
 
 (defcustom winner-ring-size 200
   "Maximum number of stored window configurations per frame."
-  :type 'integer)
+  :type 'natnum)
 
 (defcustom winner-boring-buffers '("*Completions*")
   "List of buffer names whose windows `winner-undo' will not restore.
@@ -217,8 +217,7 @@ You may want to include buffer names such as *Help*, *Apropos*,
      ((window-minibuffer-p) (other-window 1)))
     (when (/= minisize (window-height miniwin))
       (with-selected-window miniwin
-        (setf (window-height) minisize)))))
-
+        (enlarge-window (- minisize (window-height)))))))
 
 
 (defvar winner-point-alist nil)
@@ -319,9 +318,6 @@ You may want to include buffer names such as *Help*, *Apropos*,
   "Functions to run whenever Winner mode is turned on or off."
   :type 'hook)
 
-(define-obsolete-variable-alias 'winner-mode-leave-hook
-  'winner-mode-off-hook "24.3")
-
 (defcustom winner-mode-off-hook nil
   "Functions to run whenever Winner mode is turned off."
   :type 'hook)
@@ -343,8 +339,8 @@ Winner mode is a global minor mode that records the changes in
 the window configuration (i.e. how the frames are partitioned
 into windows) so that the changes can be \"undone\" using the
 command `winner-undo'.  By default this one is bound to the key
-sequence `C-c <left>'.  If you change your mind (while undoing),
-you can press `C-c <right>' (calling `winner-redo')."
+sequence \\`C-c <left>'.  If you change your mind (while undoing),
+you can press \\`C-c <right>' (calling `winner-redo')."
   :global t
   (if winner-mode
       (progn

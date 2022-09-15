@@ -215,6 +215,9 @@ template <int w>
 # define _GL_VERIFY(R, DIAGNOSTIC, ...)                                \
     extern int (*_GL_GENSYM (_gl_verify_function) (void))	       \
       [_GL_VERIFY_TRUE (R, DIAGNOSTIC)]
+# if 4 < __GNUC__ + (6 <= __GNUC_MINOR__)
+#  pragma GCC diagnostic ignored "-Wnested-externs"
+# endif
 #endif
 
 /* _GL_STATIC_ASSERT_H is defined if this code is copied into assert.h.  */
@@ -300,13 +303,16 @@ template <int w>
 # define assume(R) ((R) ? (void) 0 : __builtin_unreachable ())
 #elif 1200 <= _MSC_VER
 # define assume(R) __assume (R)
+#elif 202311L <= __STDC_VERSION__
+# include <stddef.h>
+# define assume(R) ((R) ? (void) 0 : unreachable ())
 #elif (defined GCC_LINT || defined lint) && _GL_HAS_BUILTIN_TRAP
   /* Doing it this way helps various packages when configured with
      --enable-gcc-warnings, which compiles with -Dlint.  It's nicer
-     when 'assume' silences warnings even with older GCCs.  */
+     if 'assume' silences warnings with GCC 3.4 through GCC 4.4.7 (2012).  */
 # define assume(R) ((R) ? (void) 0 : __builtin_trap ())
 #else
-  /* Some tools grok NOTREACHED, e.g., Oracle Studio 12.6.  */
+  /* Some older tools grok NOTREACHED, e.g., Oracle Studio 12.6 (2017).  */
 # define assume(R) ((R) ? (void) 0 : /*NOTREACHED*/ (void) 0)
 #endif
 

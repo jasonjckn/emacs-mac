@@ -54,21 +54,19 @@
 (define-obsolete-variable-alias 'vc-log-mode-map 'log-edit-mode-map "28.1")
 (define-obsolete-variable-alias 'vc-log-entry-mode 'log-edit-mode-map "28.1")
 
-(easy-mmode-defmap log-edit-mode-map
-  '(("\C-c\C-c" . log-edit-done)
-    ("\C-c\C-a" . log-edit-insert-changelog)
-    ("\C-c\C-w" . log-edit-generate-changelog-from-diff)
-    ("\C-c\C-d" . log-edit-show-diff)
-    ("\C-c\C-f" . log-edit-show-files)
-    ("\C-c\C-k" . log-edit-kill-buffer)
-    ("\C-a"     . log-edit-beginning-of-line)
-    ("\M-n"	. log-edit-next-comment)
-    ("\M-p"	. log-edit-previous-comment)
-    ("\M-r"	. log-edit-comment-search-backward)
-    ("\M-s"	. log-edit-comment-search-forward)
-    ("\C-c?"	. log-edit-mode-help))
-  "Keymap for the `log-edit-mode' (to edit version control log messages)."
-  :group 'log-edit)
+(defvar-keymap log-edit-mode-map
+  "C-c C-c" #'log-edit-done
+  "C-c C-a" #'log-edit-insert-changelog
+  "C-c C-w" #'log-edit-generate-changelog-from-diff
+  "C-c C-d" #'log-edit-show-diff
+  "C-c C-f" #'log-edit-show-files
+  "C-c C-k" #'log-edit-kill-buffer
+  "C-a"     #'log-edit-beginning-of-line
+  "M-n"     #'log-edit-next-comment
+  "M-p"     #'log-edit-previous-comment
+  "M-r"     #'log-edit-comment-search-backward
+  "M-s"     #'log-edit-comment-search-forward
+  "C-c ?"   #'log-edit-mode-help)
 
 (easy-menu-define log-edit-menu log-edit-mode-map
   "Menu used for `log-edit-mode'."
@@ -666,6 +664,19 @@ comment history, see `log-edit-comment-ring', and hides `log-edit-files-buf'."
       (indent-rigidly (point) (point-max)
 		      (- log-edit-common-indent common)))))
 
+(defvar vc-patch-string)
+
+(autoload 'vc-diff-patch-string "vc")
+(defun log-edit-diff-patch ()
+  (vc-diff-patch-string vc-patch-string))
+
+(defvar vc-log-fileset)
+
+(defun log-edit-diff-fileset ()
+  "Display diffs for the files to be committed."
+  (interactive)
+  (vc-diff nil nil (list log-edit-vc-backend vc-log-fileset)))
+
 (defun log-edit-show-diff ()
   "Show the diff for the files to be committed."
   (interactive)
@@ -712,10 +723,14 @@ different header separator appropriate for `log-edit-mode'."
   (interactive)
   (when (or (called-interactively-p 'interactive)
             (log-edit-empty-buffer-p))
-    (insert "Summary: ")
-    (when log-edit-setup-add-author
-      (insert "\nAuthor: "))
-    (insert "\n\n")
+    (dolist (header (append '("Summary") (and log-edit-setup-add-author
+                                              '("Author"))))
+      ;; Make `C-a' work like in other buffers with header names.
+      (insert (propertize (concat header ": ")
+                          'field 'header
+                          'rear-nonsticky t)
+              "\n"))
+    (insert "\n")
     (message-position-point)))
 
 (defun log-edit-insert-cvs-template ()

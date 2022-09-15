@@ -397,6 +397,8 @@ Changes to files matching one of the regexps in this list are not listed.")
     "autogen/missing" "autogen"
     "autogen/copy_autogen" ; not generated, but trivial and now removed
     "dir_top"
+    ;; Imported into Emacs but externally maintained.
+    "publicsuffix.txt" "SKK-JISYO.L"
     ;; Only existed briefly, then renamed:
     "images/icons/allout-widgets-dark-bg"
     "images/icons/allout-widgets-light-bg"
@@ -1881,7 +1883,7 @@ list of their contributions.\n")
 		(insert "\n "))
 	    (insert " " file))
 	  (insert "\n")))))
-    (insert "\nLocal" " Variables:\nmode: etc-authors\ncoding: "
+    (insert "\nLocal" " Variables:\nmode: emacs-authors\ncoding: "
 	    (symbol-name authors-coding-system) "\nEnd:\n")
     (message "Generating buffer %s... done" buffer-name)
     (unless noninteractive

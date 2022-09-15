@@ -52,34 +52,9 @@
 
 ;;; Code:
 
-(require 'ert)
+(require 'tramp)
 (require 'ert-x)
 (require 'filenotify)
-(require 'tramp)
-
-;; There is no default value on w32 systems, which could work out of the box.
-(defconst file-notify-test-remote-temporary-file-directory
-  (cond
-   ((getenv "REMOTE_TEMPORARY_FILE_DIRECTORY"))
-   ((eq system-type 'windows-nt) null-device)
-   (t (add-to-list
-       'tramp-methods
-       '("mock"
-	 (tramp-login-program        "sh")
-	 (tramp-login-args           (("-i")))
-	 (tramp-remote-shell         "/bin/sh")
-	 (tramp-remote-shell-args    ("-c"))
-	 (tramp-connection-timeout   10)))
-      (add-to-list
-       'tramp-default-host-alist
-       `("\\`mock\\'" nil ,(system-name)))
-      ;; Emacs' Makefile sets $HOME to a nonexistent value.  Needed in
-      ;; batch mode only, therefore.  `temporary-file-directory' might
-      ;; be quoted, so we unquote it just in case.
-      (unless (and (null noninteractive) (file-directory-p "~/"))
-        (setenv "HOME" (file-name-unquote temporary-file-directory)))
-      (format "/mock::%s" temporary-file-directory)))
-  "Temporary directory for Tramp tests.")
 
 ;; Filter suppressed remote file-notify libraries.
 (when (stringp (getenv "REMOTE_FILE_NOTIFY_LIBRARY"))
@@ -162,9 +137,7 @@ Return nil when any other file notification watch is still active."
 
 (defun file-notify--test-cleanup ()
   "Cleanup after a test."
-  (file-notify-rm-watch file-notify--test-desc)
-  (file-notify-rm-watch file-notify--test-desc1)
-  (file-notify-rm-watch file-notify--test-desc2)
+  (file-notify-rm-all-watches)
 
   (ignore-errors
     (delete-file (file-newest-backup file-notify--test-tmpfile)))
@@ -205,10 +178,6 @@ Return nil when any other file notification watch is still active."
       tramp-allow-unsafe-temporary-files
       (or tramp-allow-unsafe-temporary-files noninteractive))
 
-;; This should happen on hydra only.
-(when (getenv "EMACS_HYDRA_CI")
-  (add-to-list 'tramp-remote-path 'tramp-own-remote-path))
-
 (defun file-notify--test-add-watch (file flags callback)
   "Like `file-notify-add-watch', but also passing FILE to CALLBACK."
   (file-notify-add-watch file flags
@@ -234,12 +203,12 @@ being the result.")
     (let (desc)
       (ignore-errors
         (and
-         (file-remote-p file-notify-test-remote-temporary-file-directory)
-         (file-directory-p file-notify-test-remote-temporary-file-directory)
-         (file-writable-p file-notify-test-remote-temporary-file-directory)
+         (file-remote-p ert-remote-temporary-file-directory)
+         (file-directory-p ert-remote-temporary-file-directory)
+         (file-writable-p ert-remote-temporary-file-directory)
          (setq desc
                (file-notify-add-watch
-                file-notify-test-remote-temporary-file-directory
+                ert-remote-temporary-file-directory
                 '(change) #'ignore))))
       (setq file-notify--test-remote-enabled-checked (cons t desc))
       (when desc (file-notify-rm-watch desc))))
@@ -299,8 +268,7 @@ If UNSTABLE is non-nil, the test is tagged as `:unstable'."
   `(ert-deftest ,(intern (concat (symbol-name test) "-remote")) ()
      ,docstring
      :tags (if ,unstable '(:expensive-test :unstable) '(:expensive-test))
-     (let* ((temporary-file-directory
-	     file-notify-test-remote-temporary-file-directory)
+     (let* ((temporary-file-directory ert-remote-temporary-file-directory)
 	    (ert-test (ert-get-test ',test))
             vc-handled-backends)
        (skip-unless (file-notify--test-remote-enabled))
@@ -421,7 +389,7 @@ If UNSTABLE is non-nil, the test is tagged as `:unstable'."
 
 ;; This test is inspired by Bug#26126 and Bug#26127.
 (ert-deftest file-notify-test02-rm-watch ()
-  "Check `file-notify-rm-watch'."
+  "Check `file-notify-rm-watch' and `file-notify-rm-all-watches'."
   (skip-unless (file-notify--test-local-enabled))
 
   (unwind-protect
@@ -515,6 +483,31 @@ If UNSTABLE is non-nil, the test is tagged as `:unstable'."
 
             ;; The environment shall be cleaned up.
             (file-notify--test-cleanup-p))))
+
+    ;; Cleanup.
+    (file-notify--test-cleanup))
+
+  (unwind-protect
+      ;; Check `file-notify-rm-all-watches'.
+      (progn
+        (setq file-notify--test-tmpfile (file-notify--test-make-temp-name)
+              file-notify--test-tmpfile1 (file-notify--test-make-temp-name))
+        (write-region "any text" nil file-notify--test-tmpfile nil 'no-message)
+        (write-region "any text" nil file-notify--test-tmpfile1 nil 'no-message)
+        (should
+         (setq file-notify--test-desc
+               (file-notify-add-watch
+                file-notify--test-tmpfile '(change) #'ignore)))
+        (should
+         (setq file-notify--test-desc1
+               (file-notify-add-watch
+                file-notify--test-tmpfile1 '(change) #'ignore)))
+        (file-notify-rm-all-watches)
+        (delete-file file-notify--test-tmpfile)
+        (delete-file file-notify--test-tmpfile1)
+
+        ;; The environment shall be cleaned up.
+        (file-notify--test-cleanup-p))
 
     ;; Cleanup.
     (file-notify--test-cleanup)))
@@ -646,7 +639,9 @@ delivered."
 
 (ert-deftest file-notify-test03-events ()
   "Check file creation/change/removal notifications."
-  :tags '(:expensive-test)
+  :tags (if (getenv "EMACS_EMBA_CI")
+            '(:expensive-test :unstable)
+          '(:expensive-test))
   (skip-unless (file-notify--test-local-enabled))
 
   (unwind-protect
@@ -1389,7 +1384,9 @@ descriptors that were issued when registering the watches.  This
 test caters for the situation in bug#22736 where the callback for
 the directory received events for the file with the descriptor of
 the file watch."
-  :tags '(:expensive-test)
+  :tags (if (getenv "EMACS_EMBA_CI")
+            '(:expensive-test :unstable)
+          '(:expensive-test))
   (skip-unless (file-notify--test-local-enabled))
 
   ;; A directory to be watched.

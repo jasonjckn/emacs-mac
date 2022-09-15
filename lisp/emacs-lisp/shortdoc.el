@@ -41,40 +41,78 @@
   '((t :inherit variable-pitch))
   "Face used for a section.")
 
-(defvar shortdoc--groups nil)
+;;;###autoload
+(progn
+  (defvar shortdoc--groups nil)
 
-(defmacro define-short-documentation-group (group &rest functions)
-  "Add GROUP to the list of defined documentation groups.
+  (defmacro define-short-documentation-group (group &rest functions)
+    "Add GROUP to the list of defined documentation groups.
 FUNCTIONS is a list of elements on the form:
 
-  (fun
+  (FUNC
    :no-manual BOOL
    :args ARGS
-   :eval EXAMPLE-FORM
+   :eval EVAL
    :no-eval EXAMPLE-FORM
-   :no-eval* EXAMPLE-FORM
    :no-value EXAMPLE-FORM
+   :no-eval* EXAMPLE-FORM
    :result RESULT-FORM
-   :result-string RESULT-FORM
+   :result-string RESULT-STRING
    :eg-result RESULT-FORM
-   :eg-result-string RESULT-FORM)
+   :eg-result-string RESULT-STRING)
 
-BOOL should be non-nil if the function isn't documented in the
+FUNC is the function being documented.
+
+NO-MANUAL should be non-nil if FUNC isn't documented in the
 manual.
 
-ARGS is optional; the function's signature is displayed if ARGS
-is not present.
+ARGS is optional list of function FUNC's arguments.  FUNC's
+signature is displayed automatically if ARGS is not present.
+Specifying ARGS might be useful where you don't want to document
+some of the uncommon arguments a function might have.
 
-If EVAL isn't a string, it will be printed with `prin1', and then
-evaluated to give a result, which is also printed.  If it's a
-string, it'll be inserted as is, then the string will be `read',
-and then evaluated.
+While the `:no-manual' and `:args' property can be used for
+any (FUNC ..) form, all of the other properties shown above
+cannot be used simultaneously in such a form.
 
-There can be any number of :example/:result elements."
-  `(progn
-     (setq shortdoc--groups (delq (assq ',group shortdoc--groups)
-                                  shortdoc--groups))
-     (push (cons ',group ',functions) shortdoc--groups)))
+Here are some common forms with examples of properties that go
+together:
+
+1. Document a form or string, and its evaluated return value.
+   (FUNC
+    :eval EVAL)
+
+If EVAL is a string, it will be inserted as is, and then that
+string will be `read' and evaluated.
+
+2. Document a form or string, but manually document its evaluation
+   result.  The provided form will not be evaluated.
+
+  (FUNC
+   :no-eval EXAMPLE-FORM
+   :result RESULT-FORM)   ;Use `:result-string' if value is in string form
+
+Using `:no-value' is the same as using `:no-eval'.
+
+Use `:no-eval*' instead of `:no-eval' where the successful
+execution of the documented form depends on some conditions.
+
+3. Document a form or string EXAMPLE-FORM.  Also manually
+   document an example result.  This result could be unrelated to
+   the documented form.
+
+  (FUNC
+   :no-eval EXAMPLE-FORM
+   :eg-result RESULT-FORM) ;Use `:eg-result-string' if value is in string form
+
+A FUNC form can have any number of `:no-eval' (or `:no-value'),
+`:no-eval*', `:result', `:result-string', `:eg-result' and
+`:eg-result-string' properties."
+    (declare (indent defun))
+    `(progn
+       (setq shortdoc--groups (delq (assq ',group shortdoc--groups)
+                                    shortdoc--groups))
+       (push (cons ',group ',functions) shortdoc--groups))))
 
 (define-short-documentation-group alist
   "Alist Basics"
@@ -195,9 +233,18 @@ There can be any number of :example/:result elements."
    :eval (substring-no-properties (propertize "foobar" 'face 'bold) 0 3))
   (try-completion
    :eval (try-completion "foo" '("foobar" "foozot" "gazonk")))
+  "Unicode Strings"
+  (string-glyph-split
+   :eval (string-glyph-split "Hello, 👼🏻🧑🏼‍🤝‍🧑🏻"))
+  (string-glyph-compose
+   :eval (string-glyph-compose "Å"))
+  (string-glyph-decompose
+   :eval (string-glyph-decompose "Å"))
   "Predicates for Strings"
   (string-equal
    :eval (string-equal "foo" "foo"))
+  (string-equal-ignore-case
+   :eval (string-equal-ignore-case "foo" "FOO"))
   (eq
    :eval (eq "foo" "foo"))
   (eql
@@ -215,11 +262,16 @@ There can be any number of :example/:result elements."
    :no-manual t
    :eval (string-blank-p " \n"))
   (string-lessp
-   :eval (string-lessp "foo" "bar"))
+   :eval (string-lessp "foo" "bar")
+   :eval (string-lessp "pic4.png" "pic32.png")
+   :eval (string-lessp "1.1" "1 2"))
   (string-greaterp
    :eval (string-greaterp "foo" "bar"))
   (string-version-lessp
-   :eval (string-version-lessp "pic4.png" "pic32.png"))
+   :eval (string-version-lessp "pic4.png" "pic32.png")
+   :eval (string-version-lessp "1.1" "1 2"))
+  (string-collate-lessp
+   :eval (string-collate-lessp "1.1" "1 2"))
   (string-prefix-p
    :eval (string-prefix-p "foo" "foobar"))
   (string-suffix-p
@@ -241,7 +293,14 @@ There can be any number of :example/:result elements."
    :eval (number-to-string 42))
   "Data About Strings"
   (length
-   :eval (length "foo"))
+   :eval (length "foo")
+   :eval (length "avocado: 🥑"))
+  (string-width
+   :eval (string-width "foo")
+   :eval (string-width "avocado: 🥑"))
+  (string-pixel-width
+   :eval (string-pixel-width "foo")
+   :eval (string-pixel-width "avocado: 🥑"))
   (string-search
    :eval (string-search "bar" "foobarzot"))
   (assoc-string
@@ -271,6 +330,9 @@ There can be any number of :example/:result elements."
    :eval (file-name-base "/tmp/foo.txt"))
   (file-relative-name
    :eval (file-relative-name "/tmp/foo" "/tmp"))
+  (file-name-split
+   :eval (file-name-split "/tmp/foo")
+   :eval (file-name-split "foo/bar"))
   (make-temp-name
    :eval (make-temp-name "/tmp/foo-"))
   (file-name-concat
@@ -293,6 +355,13 @@ There can be any number of :example/:result elements."
   (abbreviate-file-name
    :no-eval (abbreviate-file-name "/home/some-user")
    :eg-result "~some-user")
+  (file-parent-directory
+   :eval (file-parent-directory "/foo/bar")
+   :eval (file-parent-directory "~")
+   :eval (file-parent-directory "/tmp/")
+   :eval (file-parent-directory "foo/bar")
+   :eval (file-parent-directory "foo")
+   :eval (file-parent-directory "/"))
   "Quoted File Names"
   (file-name-quote
    :args (name)
@@ -348,6 +417,9 @@ There can be any number of :example/:result elements."
   (file-newer-than-file-p
    :no-eval (file-newer-than-file-p "/tmp/foo" "/tmp/bar")
    :eg-result nil)
+  (file-has-changed-p
+   :no-eval (file-has-changed-p "/tmp/foo")
+   :eg-result t)
   (file-equal-p
    :no-eval (file-equal-p "/tmp/foo" "/tmp/bar")
    :eg-result nil)
@@ -405,7 +477,9 @@ There can be any number of :example/:result elements."
    :no-eval* (directory-files-and-attributes "/tmp/foo"))
   (file-expand-wildcards
    :no-eval (file-expand-wildcards "/tmp/*.png")
-   :eg-result ("/tmp/foo.png" "/tmp/zot.png"))
+   :eg-result ("/tmp/foo.png" "/tmp/zot.png")
+   :no-eval (file-expand-wildcards "/*/foo.png")
+   :eg-result ("/tmp/foo.png" "/var/foo.png"))
   (locate-dominating-file
    :no-eval (locate-dominating-file "foo.png" "/tmp/foo/bar/zot")
    :eg-result "/tmp/foo.png")
@@ -429,7 +503,7 @@ There can be any number of :example/:result elements."
   (set-file-modes
    :no-value "(set-file-modes \"/tmp/foo\" #o644)")
   (set-file-times
-   :no-value (set-file-times "/tmp/foo" (current-time)))
+   :no-value (set-file-times "/tmp/foo"))
   "File Modes"
   (set-default-file-modes
    :no-value "(set-default-file-modes #o755)")
@@ -523,6 +597,10 @@ There can be any number of :example/:result elements."
    :eval (nth 1 '(one two three)))
   (nthcdr
    :eval (nthcdr 1 '(one two three)))
+  (take
+   :eval (take 3 '(one two three four)))
+  (ntake
+   :eval (ntake 3 (list 'one 'two 'three 'four)))
   (elt
    :eval (elt '(one two three) 1))
   (car-safe
@@ -626,11 +704,6 @@ There can be any number of :example/:result elements."
   (plist-put
    :no-eval (setq plist (plist-put plist 'd 4))
    :eq-result (a 1 b 2 c 3 d 4))
-  (lax-plist-get
-   :eval (lax-plist-get '("a" 1 "b" 2 "c" 3) "b"))
-  (lax-plist-put
-   :no-eval (setq plist (lax-plist-put plist "d" 4))
-   :eq-result '("a" 1 "b" 2 "c" 3 "d" 4))
   (plist-member
    :eval (plist-member '(a 1 b 2 c 3) 'b))
   "Data About Lists"
@@ -773,6 +846,10 @@ There can be any number of :example/:result elements."
    :eval (seq-find #'numberp '(a b 3 4 f 6)))
   (seq-position
    :eval (seq-position '(a b c) 'c))
+  (seq-positions
+   :eval (seq-positions '(a b c a d) 'a)
+   :eval (seq-positions '(a b c a d) 'z)
+   :eval (seq-positions '(11 5 7 12 9 15) 10 #'>=))
   (seq-length
    :eval (seq-length "abcde"))
   (seq-max
@@ -815,6 +892,9 @@ There can be any number of :example/:result elements."
    :eval (seq-filter #'numberp '(a b 3 4 f 6)))
   (seq-remove
    :eval (seq-remove #'numberp '(1 2 c d 5)))
+  (seq-remove-at-position
+   :eval (seq-remove-at-position '(a b c d e) 3)
+   :eval (seq-remove-at-position [a b c d e] 0))
   (seq-group-by
    :eval (seq-group-by #'cl-plusp '(-1 2 3 -4 -5 6)))
   (seq-union
@@ -829,6 +909,8 @@ There can be any number of :example/:result elements."
    :eval (seq-subseq '(a b c d e) 2 4))
   (seq-take
    :eval (seq-take '(a b c d e) 3))
+  (seq-split
+   :eval (seq-split [0 1 2 3 5] 2))
   (seq-take-while
    :eval (seq-take-while #'cl-evenp [2 4 9 6 5]))
   (seq-uniq
@@ -866,12 +948,24 @@ There can be any number of :example/:result elements."
    :eval (point-min))
   (point-max
    :eval (point-max))
+  (pos-bol
+   :eval (pos-bol))
+  (pos-eol
+   :eval (pos-eol))
+  (bolp
+   :eval (bolp))
+  (eolp
+   :eval (eolp))
   (line-beginning-position
    :eval (line-beginning-position))
   (line-end-position
    :eval (line-end-position))
   (buffer-size
    :eval (buffer-size))
+  (bobp
+   :eval (bobp))
+  (eobp
+   :eval (eobp))
   "Moving Around"
   (goto-char
    :no-eval (goto-char (point-max))
@@ -897,8 +991,13 @@ There can be any number of :example/:result elements."
   (following-char
    :no-eval (following-char)
    :eg-result 67)
+  (preceding-char
+   :no-eval (preceding-char)
+   :eg-result 38)
   (char-after
    :eval (char-after 45))
+  (char-before
+   :eval (char-before 13))
   (get-byte
    :no-eval (get-byte 45)
    :eg-result-string "#xff")
@@ -907,6 +1006,8 @@ There can be any number of :example/:result elements."
    :no-value (delete-region (point-min) (point-max)))
   (erase-buffer
    :no-value (erase-buffer))
+  (delete-line
+   :no-value (delete-line))
   (insert
    :no-value (insert "This string will be inserted in the buffer\n"))
   (subst-char-in-region
@@ -1110,9 +1211,6 @@ There can be any number of :example/:result elements."
   (ash
    :eval (ash 1 4)
    :eval (ash 16 -1))
-  (lsh
-   :eval (lsh 1 4)
-   :eval (lsh 16 -1))
   (logand
    :no-eval "(logand #b10 #b111)"
    :result-string "#b10")
@@ -1206,17 +1304,54 @@ There can be any number of :example/:result elements."
   (text-property-search-backward
    :no-eval (text-property-search-backward 'face nil t)))
 
+(define-short-documentation-group keymaps
+  "Defining keymaps"
+  (define-keymap
+    :no-eval (define-keymap "C-c C-c" #'quit-buffer))
+  (defvar-keymap
+      :no-eval (defvar-keymap my-keymap "C-c C-c" #'quit-buffer))
+  "Setting keys"
+  (keymap-set
+   :no-eval (keymap-set map "C-c C-c" #'quit-buffer))
+  (keymap-local-set
+   :no-eval (keymap-local-set "C-c C-c" #'quit-buffer))
+  (keymap-global-set
+   :no-eval (keymap-global-set "C-c C-c" #'quit-buffer))
+  (keymap-unset
+   :no-eval (keymap-unset map "C-c C-c"))
+  (keymap-local-unset
+   :no-eval (keymap-local-unset "C-c C-c"))
+  (keymap-global-unset
+   :no-eval (keymap-global-unset "C-c C-c"))
+  (keymap-substitute
+   :no-eval (keymap-substitute map "C-c C-c" "M-a"))
+  (keymap-set-after
+   :no-eval (keymap-set-after map "<separator-2>" menu-bar-separator))
+  "Predicates"
+  (keymapp
+   :eval (keymapp (define-keymap)))
+  (key-valid-p
+   :eval (key-valid-p "C-c C-c")
+   :eval (key-valid-p "C-cC-c"))
+  "Lookup"
+  (keymap-lookup
+   :eval (keymap-lookup (current-global-map) "C-x x g")))
+
 ;;;###autoload
-(defun shortdoc-display-group (group &optional function)
+(defun shortdoc-display-group (group &optional function same-window)
   "Pop to a buffer with short documentation summary for functions in GROUP.
-If FUNCTION is non-nil, place point on the entry for FUNCTION (if any)."
+If FUNCTION is non-nil, place point on the entry for FUNCTION (if any).
+If SAME-WINDOW, don't pop to a new window."
   (interactive (list (completing-read "Show summary for functions in: "
                                       (mapcar #'car shortdoc--groups))))
   (when (stringp group)
     (setq group (intern group)))
   (unless (assq group shortdoc--groups)
     (error "No such documentation group %s" group))
-  (pop-to-buffer (format "*Shortdoc %s*" group))
+  (funcall (if same-window
+               #'pop-to-buffer-same-window
+             #'pop-to-buffer)
+           (format "*Shortdoc %s*" group))
   (let ((inhibit-read-only t)
         (prev nil))
     (erase-buffer)
@@ -1245,6 +1380,9 @@ If FUNCTION is non-nil, place point on the entry for FUNCTION (if any)."
     (text-property-search-forward 'shortdoc-function function t)
     (beginning-of-line)))
 
+;;;###autoload
+(defalias 'shortdoc #'shortdoc-display-group)
+
 (defun shortdoc--display-function (data)
   (let ((function (pop data))
         (start-section (point))
@@ -1258,15 +1396,15 @@ If FUNCTION is non-nil, place point on the entry for FUNCTION (if any)."
          'action (lambda (_)
                    (describe-function function))
          'follow-link t
-         'help-echo (purecopy "mouse-1, RET: describe function"))
+         'help-echo "mouse-1, RET: describe function")
       (insert-text-button
        (symbol-name function)
        'face 'button
        'action (lambda (_)
                  (info-lookup-symbol function 'emacs-lisp-mode))
        'follow-link t
-       'help-echo (purecopy "mouse-1, RET: show \
-function's documentation in the Info manual")))
+       'help-echo "mouse-1, RET: show \
+function's documentation in the Info manual"))
     (setq arglist-start (point))
     (insert ")\n")
     ;; Doc string.
@@ -1351,11 +1489,14 @@ function's documentation in the Info manual")))
 If GROUP doesn't exist, it will be created.
 If SECTION doesn't exist, it will be added.
 
+ELEM is a Lisp form.  See `define-short-documentation-group' for
+details.
+
 Example:
 
   (shortdoc-add-function
-    'file \"Predicates\"
-    '(file-locked-p :no-eval (file-locked-p \"/tmp\")))"
+    \\='file \"Predicates\"
+    \\='(file-locked-p :no-eval (file-locked-p \"/tmp\")))"
   (let ((glist (assq group shortdoc--groups)))
     (unless glist
       (setq glist (list group))
@@ -1369,14 +1510,12 @@ Example:
         (setq slist (cdr slist)))
       (setcdr slist (cons elem (cdr slist))))))
 
-(defvar shortdoc-mode-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map (kbd "n") 'shortdoc-next)
-    (define-key map (kbd "p") 'shortdoc-previous)
-    (define-key map (kbd "C-c C-n") 'shortdoc-next-section)
-    (define-key map (kbd "C-c C-p") 'shortdoc-previous-section)
-    map)
-  "Keymap for `shortdoc-mode'.")
+(defvar-keymap shortdoc-mode-map
+  :doc "Keymap for `shortdoc-mode'."
+  "n"       #'shortdoc-next
+  "p"       #'shortdoc-previous
+  "C-c C-n" #'shortdoc-next-section
+  "C-c C-p" #'shortdoc-previous-section)
 
 (define-derived-mode shortdoc-mode special-mode "shortdoc"
   "Mode for shortdoc."

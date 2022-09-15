@@ -197,8 +197,8 @@ newline or semicolon after an else or end keyword."
 
 (defcustom octave-block-offset 2
   "Extra indentation applied to statements in Octave block structures."
-  :type 'integer)
-(put 'octave-block-offset 'safe-local-variable 'integerp)
+  :type 'integer
+  :safe #'integerp)
 
 (defvar octave-block-comment-start
   (concat (make-string 2 octave-comment-char) " ")
@@ -879,7 +879,8 @@ startup file, `~/.emacs-octave'."
     (set-process-filter proc 'comint-output-filter)
     ;; Just in case, to be sure a cd in the startup file won't have
     ;; detrimental effects.
-    (with-demoted-errors (inferior-octave-resync-dirs))
+    (with-demoted-errors "Octave resync error: %S"
+      (inferior-octave-resync-dirs))
     ;; Generate a proper prompt, which is critical to
     ;; `comint-history-isearch-backward-regexp'.  Bug#14433.
     (comint-send-string proc "\n")))
@@ -1721,12 +1722,12 @@ code line."
                  (dir (file-name-directory
                        (directory-file-name (file-name-directory file)))))
             (replace-match "" nil nil nil 1)
-            (insert (substitute-command-keys "`"))
+            (insert (substitute-quotes "`"))
             ;; Include the parent directory which may be regarded as
             ;; the category for the FN.
             (help-insert-xref-button (file-relative-name file dir)
                                      'octave-help-file fn)
-            (insert (substitute-command-keys "'"))))
+            (insert (substitute-quotes "'"))))
         ;; Make 'See also' clickable.
         (with-syntax-table octave-mode-syntax-table
           (when (re-search-forward "^\\s-*See also:" nil t)
@@ -1814,18 +1815,18 @@ If the environment variable OCTAVE_SRCDIR is set, it is searched first."
        (user-error "Aborted")))
     (_ name)))
 
-(defvar find-tag-marker-ring)
+(declare-function xref-push-marker-stack "xref" (&optional m))
 
 (defun octave-find-definition (fn)
   "Find the definition of FN.
 Functions implemented in C++ can be found if
 variable `octave-source-directories' is set correctly."
   (interactive (list (octave-completing-read)))
-  (require 'etags)
+  (require 'xref)
   (let ((orig (point)))
     (if (and (derived-mode-p 'octave-mode)
              (octave-goto-function-definition fn))
-        (ring-insert find-tag-marker-ring (copy-marker orig))
+        (xref-push-marker-stack (copy-marker orig))
       (inferior-octave-send-list-and-digest
        ;; help NAME is more verbose
        (list (format "\
@@ -1840,7 +1841,7 @@ if iskeyword('%s') disp('`%s'' is a keyword') else which('%s') endif\n"
             (setq file (match-string 1 line))))
         (if (not file)
             (user-error "%s" (or line (format-message "`%s' not found" fn)))
-          (ring-insert find-tag-marker-ring (point-marker))
+          (xref-push-marker-stack)
           (setq file (funcall octave-find-definition-filename-function file))
           (when file
             (find-file file)

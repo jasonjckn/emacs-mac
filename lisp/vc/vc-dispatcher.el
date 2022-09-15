@@ -127,8 +127,12 @@ preserve the setting."
   :group 'vc)
 
 (defcustom vc-command-messages nil
-  "If non-nil, display run messages from back-end commands."
-  :type 'boolean
+  "If non-nil, display and log messages about running back-end commands.
+If the value is `log', messages about running VC back-end commands are
+logged in the *Messages* buffer, but not displayed."
+  :type '(choice (const :tag "No messages" nil)
+                 (const :tag "Display and log messages" t)
+                 (const :tag "Log messages, but don't display" log))
   :group 'vc)
 
 (defcustom vc-suppress-confirm nil
@@ -311,7 +315,10 @@ case, and the process object in the asynchronous case."
 		      (substring command 0 -1)
 		    command)
 		  " " (vc-delistify flags)
-		  " " (vc-delistify files))))
+		  " " (vc-delistify files)))
+	 (vc-inhibit-message
+	  (or (eq vc-command-messages 'log)
+	      (eq (selected-window) (active-minibuffer-window)))))
     (save-current-buffer
       (unless (or (eq buffer t)
 		  (and (stringp buffer)
@@ -335,7 +342,7 @@ case, and the process object in the asynchronous case."
 		       (apply #'start-file-process command (current-buffer)
                               command squeezed))))
 		(when vc-command-messages
-		  (let ((inhibit-message (eq (selected-window) (active-minibuffer-window))))
+		  (let ((inhibit-message vc-inhibit-message))
 		    (message "Running in background: %s" full-command)))
                 ;; Get rid of the default message insertion, in case we don't
                 ;; set a sentinel explicitly.
@@ -345,11 +352,11 @@ case, and the process object in the asynchronous case."
 		(when vc-command-messages
 		  (vc-run-delayed
 		    (let ((message-truncate-lines t)
-			  (inhibit-message (eq (selected-window) (active-minibuffer-window))))
+			  (inhibit-message vc-inhibit-message))
 		      (message "Done in background: %s" full-command)))))
 	    ;; Run synchronously
 	    (when vc-command-messages
-	      (let ((inhibit-message (eq (selected-window) (active-minibuffer-window))))
+	      (let ((inhibit-message vc-inhibit-message))
 		(message "Running in foreground: %s" full-command)))
 	    (let ((buffer-undo-list t))
 	      (setq status (apply #'process-file command nil t nil squeezed)))
@@ -364,7 +371,7 @@ case, and the process object in the asynchronous case."
 		     (if (integerp status) (format "status %d" status) status)
 		     full-command))
 	    (when vc-command-messages
-	      (let ((inhibit-message (eq (selected-window) (active-minibuffer-window))))
+	      (let ((inhibit-message vc-inhibit-message))
 		(message "Done (status=%d): %s" status full-command)))))
 	(vc-run-delayed
 	  (run-hook-with-args 'vc-post-command-functions
@@ -617,6 +624,8 @@ NOT-URGENT means it is ok to continue if the user says not to save."
 
 (declare-function log-edit-empty-buffer-p "log-edit" ())
 
+(defvar vc-patch-string)
+
 (defun vc-log-edit (fileset mode backend)
   "Set up `log-edit' for use on FILE."
   (setq default-directory
@@ -629,32 +638,34 @@ NOT-URGENT means it is ok to continue if the user says not to save."
 		(and (local-variable-p 'vc-log-fileset)
 		     (not (equal vc-log-fileset fileset))))
 	    `((log-edit-listfun
-               . (lambda ()
-                   ;; FIXME: When fileset includes directories, and
-                   ;; there are relevant ChangeLog files inside their
-                   ;; children, we don't find them.  Either handle it
-                   ;; in `log-edit-insert-changelog-entries' by
-                   ;; walking down the file trees, or somehow pass
-                   ;; `fileset-only-files' from `vc-next-action'
-                   ;; through to this function.
-                   (let ((root (vc-root-dir)))
-                     ;; Returns paths relative to the root, so that
-                     ;; `log-edit-changelog-insert-entries'
-                     ;; substitutes them in correctly later, even when
-                     ;; `vc-checkin' was called from a file buffer, or
-                     ;; a non-root VC-Dir buffer.
-                     (mapcar
-                      (lambda (file) (file-relative-name file root))
-                      ',fileset))))
-	      (log-edit-diff-function . vc-diff)
+               . ,(lambda ()
+                    ;; FIXME: When fileset includes directories, and
+                    ;; there are relevant ChangeLog files inside their
+                    ;; children, we don't find them.  Either handle it
+                    ;; in `log-edit-insert-changelog-entries' by
+                    ;; walking down the file trees, or somehow pass
+                    ;; `fileset-only-files' from `vc-next-action'
+                    ;; through to this function.
+                    (let ((root (vc-root-dir)))
+                      ;; Returns paths relative to the root, so that
+                      ;; `log-edit-changelog-insert-entries'
+                      ;; substitutes them in correctly later, even when
+                      ;; `vc-checkin' was called from a file buffer, or
+                      ;; a non-root VC-Dir buffer.
+                      (mapcar
+                       (lambda (file) (file-relative-name file root))
+                       fileset))))
+	      (log-edit-diff-function
+               . ,(if vc-patch-string 'log-edit-diff-patch 'log-edit-diff-fileset))
 	      (log-edit-vc-backend . ,backend)
-	      (vc-log-fileset . ,fileset))
+	      (vc-log-fileset . ,fileset)
+	      (vc-patch-string . ,vc-patch-string))
 	    nil
 	    mode)
   (set-buffer-modified-p nil)
   (setq buffer-file-name nil))
 
-(defun vc-start-logentry (files comment initial-contents msg logbuf mode action &optional after-hook backend)
+(defun vc-start-logentry (files comment initial-contents msg logbuf mode action &optional after-hook backend patch-string)
   "Accept a comment for an operation on FILES.
 If COMMENT is nil, pop up a LOGBUF buffer, emit MSG, and set the
 action on close to ACTION.  If COMMENT is a string and
@@ -666,7 +677,8 @@ empty comment.  Remember the file's buffer in `vc-parent-buffer'
 \(current one if no file).  Puts the log-entry buffer in major mode
 MODE, defaulting to `log-edit-mode' if MODE is nil.
 AFTER-HOOK specifies the local value for `vc-log-after-operation-hook'.
-BACKEND, if non-nil, specifies a VC backend for the Log Edit buffer."
+BACKEND, if non-nil, specifies a VC backend for the Log Edit buffer.
+PATCH-STRING is a patch to check in."
   (let ((parent
          (if (vc-dispatcher-browsing)
              ;; If we are called from a directory browser, the parent buffer is
@@ -681,6 +693,8 @@ BACKEND, if non-nil, specifies a VC backend for the Log Edit buffer."
     (setq-local vc-parent-buffer parent)
     (setq-local vc-parent-buffer-name
                 (concat " from " (buffer-name vc-parent-buffer)))
+    (when patch-string
+      (setq-local vc-patch-string patch-string))
     (vc-log-edit files mode backend)
     (make-local-variable 'vc-log-after-operation-hook)
     (when after-hook
@@ -746,7 +760,8 @@ the buffer contents as a comment."
 (defun vc-dispatcher-browsing ()
   "Are we in a directory browser buffer?"
   (or (derived-mode-p 'vc-dir-mode)
-      (derived-mode-p 'dired-mode)))
+      (derived-mode-p 'dired-mode)
+      (derived-mode-p 'diff-mode)))
 
 ;; These are unused.
 ;; (defun vc-dispatcher-in-fileset-p (fileset)
@@ -754,8 +769,7 @@ the buffer contents as a comment."
 ;;     (while (and (not member) fileset)
 ;;       (let ((elem (pop fileset)))
 ;;         (if (if (file-directory-p elem)
-;;                 (eq t (compare-strings buffer-file-name nil (length elem)
-;;                                        elem nil nil))
+;;                 (string-prefix-p elem buffer-file-name)
 ;;               (eq (current-buffer) (get-file-buffer elem)))
 ;;             (setq member t))))
 ;;     member))

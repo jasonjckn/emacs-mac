@@ -57,24 +57,28 @@ struct table_entry
   int numeric;
   /* The first one is a valid name as a face attribute.
      The second one (if any) is a typical name in XLFD field.  */
-  const char *names[5];
+  const char *names[6];
 };
 
+/* The following tables should be in sync with 'custom-face-attributes'.  */
+
 /* Table of weight numeric values and their names.  This table must be
-   sorted by numeric values in ascending order.  */
+   sorted by numeric values in ascending order and the numeric values
+   must approximately match the weights in the font files.  */
 
 static const struct table_entry weight_table[] =
 {
   { 0, { "thin" }},
-  { 20, { "ultra-light", "ultralight" }},
-  { 40, { "extra-light", "extralight" }},
+  { 40, { "ultra-light", "ultralight", "extra-light", "extralight" }},
   { 50, { "light" }},
-  { 75, { "semi-light", "semilight", "demilight", "book" }},
-  { 100, { "normal", "medium", "regular", "unspecified" }},
-  { 180, { "semi-bold", "semibold", "demibold", "demi" }},
+  { 55, { "semi-light", "semilight", "demilight" }},
+  { 80, { "regular", "normal", "unspecified", "book" }},
+  { 100, { "medium" }},
+  { 180, { "semi-bold", "semibold", "demibold", "demi-bold", "demi" }},
   { 200, { "bold" }},
-  { 205, { "extra-bold", "extrabold" }},
-  { 210, { "ultra-bold", "ultrabold", "black" }}
+  { 205, { "extra-bold", "extrabold", "ultra-bold", "ultrabold" }},
+  { 210, { "black", "heavy" }},
+  { 250, { "ultra-heavy", "ultraheavy" }}
 };
 
 /* Table of slant numeric values and their names.  This table must be
@@ -733,7 +737,7 @@ font_put_extra (Lisp_Object font, Lisp_Object prop, Lisp_Object val)
     {
       Lisp_Object prev = Qnil;
 
-      if (EQ (val, Qunbound))
+      if (BASE_EQ (val, Qunbound))
 	return val;
       while (CONSP (extra)
 	     && NILP (Fstring_lessp (prop, XCAR (XCAR (extra)))))
@@ -747,7 +751,7 @@ font_put_extra (Lisp_Object font, Lisp_Object prop, Lisp_Object val)
       return val;
     }
   XSETCDR (slot, val);
-  if (EQ (val, Qunbound))
+  if (BASE_EQ (val, Qunbound))
     ASET (font, FONT_EXTRA_INDEX, Fdelq (slot, extra));
   return val;
 }
@@ -1490,11 +1494,20 @@ font_parse_fcname (char *name, ptrdiff_t len, Lisp_Object font)
 #define PROP_MATCH(STR) (word_len == strlen (STR)		\
 			 && memcmp (p, STR, strlen (STR)) == 0)
 
-		  if (PROP_MATCH ("light")
+		  if (PROP_MATCH ("thin")
+		      || PROP_MATCH ("ultra-light")
+		      || PROP_MATCH ("light")
+		      || PROP_MATCH ("semi-light")
+		      || PROP_MATCH ("book")
 		      || PROP_MATCH ("medium")
+		      || PROP_MATCH ("normal")
+		      || PROP_MATCH ("semibold")
 		      || PROP_MATCH ("demibold")
 		      || PROP_MATCH ("bold")
-		      || PROP_MATCH ("black"))
+		      || PROP_MATCH ("ultra-bold")
+		      || PROP_MATCH ("black")
+		      || PROP_MATCH ("heavy")
+		      || PROP_MATCH ("ultra-heavy"))
 		    FONT_SET_STYLE (font, FONT_WEIGHT_INDEX, val);
 		  else if (PROP_MATCH ("roman")
 			   || PROP_MATCH ("italic")
@@ -2759,11 +2772,36 @@ font_delete_unmatched (Lisp_Object vec, Lisp_Object spec, int size)
 	  continue;
 	}
       for (prop = FONT_WEIGHT_INDEX; prop < FONT_SIZE_INDEX; prop++)
-	if (FIXNUMP (AREF (spec, prop))
-	    && ! (FIXNUMP (AREF (entity, prop))
-		  && ((XFIXNUM (AREF (spec, prop)) >> 8)
-		      == (XFIXNUM (AREF (entity, prop)) >> 8))))
-	  prop = FONT_SPEC_MAX;
+	{
+	  if (FIXNUMP (AREF (spec, prop)))
+	    {
+	      if (!FIXNUMP (AREF (entity, prop)))
+		prop = FONT_SPEC_MAX;
+	      else
+		{
+		  int required = XFIXNUM (AREF (spec, prop)) >> 8;
+		  int candidate = XFIXNUM (AREF (entity, prop)) >> 8;
+
+		  if (candidate != required
+#ifdef HAVE_NTGUI
+		      /* A kludge for w32 font search, where listing a
+			 family returns only 4 standard weights: regular,
+			 italic, bold, bold-italic.  For other values one
+			 must specify the font, not just the family in the
+			 :family attribute of the face.  But specifying
+			 :family in the face attributes looks for regular
+			 weight, so if we require exact match, the
+			 non-regular font will be rejected.  So we relax
+			 the accuracy of the match here, and let
+			 font_sort_entities find the best match.  */
+		      && (prop != FONT_WEIGHT_INDEX
+			  || eabs (candidate - required) > 100)
+#endif
+		      )
+		    prop = FONT_SPEC_MAX;
+		}
+	    }
+	}
       if (prop < FONT_SPEC_MAX
 	  && size
 	  && XFIXNUM (AREF (entity, FONT_SIZE_INDEX)) > 0)
@@ -3560,8 +3598,8 @@ font_open_by_name (struct frame *f, Lisp_Object name)
 
    The second is with frame F NULL.  In this case, DRIVER is globally
    registered in the variable `font_driver_list'.  All font-driver
-   implementations must call this function in its syms_of_XXXX
-   (e.g. syms_of_xfont).  */
+   implementations must call this function in its
+   syms_of_XXXX_for_pdumper (e.g. syms_of_xfont_for_pdumper).  */
 
 void
 register_font_driver (struct font_driver const *driver, struct frame *f)
@@ -4662,8 +4700,7 @@ Each element of the value is a cons (VARIATION-SELECTOR . GLYPH-ID),
 where
   VARIATION-SELECTOR is a character code of variation selector
     (#xFE00..#xFE0F or #xE0100..#xE01EF).
-  GLYPH-ID is a glyph code of the corresponding variation glyph,
-a fixnum, if it's small enough, otherwise a bignum.  */)
+  GLYPH-ID is a glyph code of the corresponding variation glyph, an integer.  */)
   (Lisp_Object font_object, Lisp_Object character)
 {
   unsigned variations[256];
@@ -4700,8 +4737,7 @@ a fixnum, if it's small enough, otherwise a bignum.  */)
    that apply to POSITION.  POSITION may be nil, in which case,
    FONT-SPEC is the font for displaying the character CH with the
    default face.  GLYPH-CODE is the glyph code in the font to use for
-   the character, it is a fixnum, if it is small enough, otherwise a
-   bignum.
+   the character, as an integer.
 
    For a text terminal, return a nonnegative integer glyph code for
    the character, or a negative integer if the character is not
@@ -5006,6 +5042,33 @@ If the font is not OpenType font, CAPABILITY is nil.  */)
 		 : Qnil));
 }
 
+DEFUN ("font-has-char-p", Ffont_has_char_p, Sfont_has_char_p, 2, 3, 0,
+       doc:
+       /* Return non-nil if FONT on FRAME has a glyph for character CH.
+FONT can be either a font-entity or a font-object.  If it is
+a font-entity and the result is nil, it means the font needs to be
+opened (with `open-font') to check.
+FRAME defaults to the selected frame if it is nil or omitted.  */)
+  (Lisp_Object font, Lisp_Object ch, Lisp_Object frame)
+{
+  struct frame *f;
+  CHECK_FONT (font);
+  CHECK_CHARACTER (ch);
+
+  if (NILP (frame))
+    f = XFRAME (selected_frame);
+  else
+    {
+      CHECK_FRAME (frame);
+      f = XFRAME (frame);
+    }
+
+  if (font_has_char (f, font, XFIXNAT (ch)) <= 0)
+    return Qnil;
+  else
+    return Qt;
+}
+
 DEFUN ("font-get-glyphs", Ffont_get_glyphs, Sfont_get_glyphs, 3, 4, 0,
        doc:
        /* Return a vector of FONT-OBJECT's glyphs for the specified characters.
@@ -5024,8 +5087,13 @@ where
   CODE is the glyph-code of C in FONT-OBJECT.
   WIDTH thru DESCENT are the metrics (in pixels) of the glyph.
   ADJUSTMENT is always nil.
-If FONT-OBJECT doesn't have a glyph for a character,
-the corresponding element is nil.  */)
+
+If FONT-OBJECT doesn't have a glyph for a character, the corresponding
+element is nil.
+
+Also see `font-has-char-p', which is more efficient than this function
+if you just want to check whether FONT-OBJECT has a glyph for a
+character.  */)
   (Lisp_Object font_object, Lisp_Object from, Lisp_Object to,
    Lisp_Object object)
 {
@@ -5577,6 +5645,7 @@ syms_of_font (void)
   defsubr (&Sclose_font);
   defsubr (&Squery_font);
   defsubr (&Sfont_get_glyphs);
+  defsubr (&Sfont_has_char_p);
   defsubr (&Sfont_match_p);
   defsubr (&Sfont_at);
 #if 0
@@ -5695,7 +5764,11 @@ match.  */);
   syms_of_xftfont ();
 #endif  /* HAVE_XFT */
 #endif  /* not USE_CAIRO */
-#endif	/* HAVE_X_WINDOWS */
+#else	/* not HAVE_X_WINDOWS */
+#ifdef USE_CAIRO
+  syms_of_ftcrfont ();
+#endif
+#endif	/* not HAVE_X_WINDOWS */
 #else	/* not HAVE_FREETYPE */
 #ifdef HAVE_X_WINDOWS
   syms_of_xfont ();
@@ -5707,9 +5780,14 @@ match.  */);
 #ifdef HAVE_NTGUI
   syms_of_w32font ();
 #endif	/* HAVE_NTGUI */
+
 #ifdef HAVE_MACGUI
   syms_of_macfont ();
 #endif	/* HAVE_MACGUI */
+
+#ifdef USE_BE_CAIRO
+  syms_of_ftcrfont ();
+#endif
 #endif	/* HAVE_WINDOW_SYSTEM */
 }
 

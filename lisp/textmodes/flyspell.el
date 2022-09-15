@@ -425,11 +425,9 @@ like <img alt=\"Some thing.\">."
 ;;*---------------------------------------------------------------------*/
 ;;*    The minor mode declaration.                                      */
 ;;*---------------------------------------------------------------------*/
-(defvar flyspell-mouse-map
-  (let ((map (make-sparse-keymap)))
-    (define-key map [mouse-2] 'flyspell-correct-word)
-    map)
-  "Keymap for Flyspell to put on erroneous words.")
+(defvar-keymap flyspell-mouse-map
+  :doc "Keymap for Flyspell to put on erroneous words."
+  "<mouse-2>" #'flyspell-correct-word)
 
 (defvar flyspell-mode-map
   (let ((map (make-sparse-keymap)))
@@ -854,6 +852,9 @@ Mostly we check word delimiters."
        ((get this-command 'flyspell-deplacement)
 	(not (eq flyspell-previous-command this-command)))
        ((get this-command 'flyspell-delayed)
+        ;; In case we're using `delete-selection-mode', make the
+        ;; region be updated immediately.
+        (deactivate-mark)
 	;; The current command is not delayed, that
 	;; is that we must check the word now.
 	(and (not unread-command-events)
@@ -1550,7 +1551,7 @@ The buffer to mark them in is `flyspell-large-region-buffer'."
       (goto-char (point-min))
       ;; Localwords parsing copied from ispell.el.
       (while (search-forward ispell-words-keyword nil t)
-	(let ((end (point-at-eol))
+        (let ((end (line-end-position))
 	      string)
 	  ;; buffer-local words separated by a space, and can contain
 	  ;; any character other than a space.  Not rigorous enough.
@@ -1711,25 +1712,32 @@ of a misspelled word removed when you've corrected it."
 ;;*---------------------------------------------------------------------*/
 ;;*    flyspell-goto-next-error ...                                     */
 ;;*---------------------------------------------------------------------*/
-(defun flyspell-goto-next-error ()
-  "Go to the next previously detected error.
+(defun flyspell-goto-next-error (&optional previous)
+  "Go to the next error.
+If PREVIOUS (interactively, the prefix), go to the previous error
+instead.
+
 In general FLYSPELL-GOTO-NEXT-ERROR must be used after
 FLYSPELL-BUFFER."
-  (interactive)
+  (interactive "P")
   (let ((pos (point))
-	(max (point-max)))
-    (if (and (eq (current-buffer) flyspell-old-buffer-error)
-	     (eq pos flyspell-old-pos-error))
-	(progn
-	  (if (= flyspell-old-pos-error max)
-	      ;; goto beginning of buffer
+	(max (if previous (point-min) (point-max))))
+    (when (and (eq (current-buffer) flyspell-old-buffer-error)
+	       (eq pos flyspell-old-pos-error))
+      (if previous
+          (if (= flyspell-old-pos-error max)
 	      (progn
-		(message "Restarting from beginning of buffer")
-		(goto-char (point-min)))
-	    (forward-word 1))
-	  (setq pos (point))))
-    ;; seek the next error
-    (while (and (< pos max)
+	        (message "Restarting from end of the buffer")
+	        (goto-char (point-max)))
+	    (forward-word -1))
+        (if (= flyspell-old-pos-error max)
+	    (progn
+	      (message "Restarting from beginning of buffer")
+	      (goto-char (point-min)))
+	  (forward-word 1)))
+      (setq pos (point)))
+    ;; Seek the next error.
+    (while (and (/= pos max)
 		(let ((ovs (overlays-at pos))
 		      (r '()))
 		  (while (and (not r) (consp ovs))
@@ -1737,13 +1745,15 @@ FLYSPELL-BUFFER."
 			(setq r t)
 		      (setq ovs (cdr ovs))))
 		  (not r)))
-      (setq pos (1+ pos)))
-    ;; save the current location for next invocation
-    (setq flyspell-old-pos-error pos)
-    (setq flyspell-old-buffer-error (current-buffer))
+      (setq pos (if previous (1- pos) (1+ pos))))
     (goto-char pos)
-    (if (= pos max)
-	(message "No more miss-spelled word!"))))
+    (when previous
+      (forward-word -1))
+    ;; Save the current location for next invocation.
+    (setq flyspell-old-pos-error (point))
+    (setq flyspell-old-buffer-error (current-buffer))
+    (when (= (point) max)
+      (message "No more miss-spelled words"))))
 
 ;;*---------------------------------------------------------------------*/
 ;;*    flyspell-overlay-p ...                                           */
@@ -1942,9 +1952,7 @@ before point that's highlighted as misspelled."
 			   'face 'flyspell-incorrect
 			   string))
       (setq pos (cdr pos)))
-    (if (fboundp 'display-message)
-	(display-message 'no-log string)
-      (message "%s" string))))
+    (message "%s" string)))
 
 ;;*---------------------------------------------------------------------*/
 ;;*    flyspell-abbrev-table ...                                        */
@@ -2273,17 +2281,8 @@ If OPOINT is non-nil, restore point there after adjusting it for replacement."
 ;;*---------------------------------------------------------------------*/
 (defun flyspell-emacs-popup (event poss word)
   "The Emacs popup menu."
-  (if (and (not event)
-           (display-mouse-p))
-      (let* ((mouse-pos  (mouse-position))
-	     (mouse-pos  (if (nth 1 mouse-pos)
-			     mouse-pos
-			   (set-mouse-position (car mouse-pos)
-				 	       (/ (frame-width) 2) 2)
-			   (mouse-position))))
-	(setq event (list (list (car (cdr mouse-pos))
-				(1+ (cdr (cdr mouse-pos))))
-			  (car mouse-pos)))))
+  (unless event
+    (setq event (popup-menu-normalize-position (point))))
   (let* ((corrects   (flyspell-sort (car (cdr (cdr poss))) word))
 	 (cor-menu   (if (consp corrects)
 			 (mapcar (lambda (correct)

@@ -218,6 +218,7 @@ corresponding Unicode character code.
 If it is a string, it is a name of file that contains the above
 information.  The file format is the same as what described for `:map'
 attribute."
+  (declare (indent defun))
   (when (vectorp (car props))
     ;; Old style code:
     ;;   (define-charset CHARSET-ID CHARSET-SYMBOL INFO-VECTOR)
@@ -297,13 +298,21 @@ attribute."
 (defvar hack-read-symbol-shorthands-function nil
   "Holds function to compute `read-symbol-shorthands'.")
 
-(defun load-with-code-conversion (fullname file &optional noerror nomessage)
+(defun load-with-code-conversion (fullname file &optional noerror nomessage
+                                           eval-function)
   "Execute a file of Lisp code named FILE whose absolute name is FULLNAME.
 The file contents are decoded before evaluation if necessary.
-If optional third arg NOERROR is non-nil,
- report no error if FILE doesn't exist.
-Print messages at start and end of loading unless
- optional fourth arg NOMESSAGE is non-nil.
+
+If optional third arg NOERROR is non-nil, report no error if FILE
+doesn't exist.
+
+Print messages at start and end of loading unless optional fourth
+arg NOMESSAGE is non-nil.
+
+If EVAL-FUNCTION, call that instead of calling `eval-buffer'
+directly.  It is called with two parameters: The buffer object
+and the file name.
+
 Return t if file exists."
   (if (null (file-readable-p fullname))
       (and (null noerror)
@@ -352,10 +361,13 @@ Return t if file exists."
 	    ;; Have the original buffer current while we eval,
             ;; but consider shorthands of the eval'ed one.
 	    (let ((read-symbol-shorthands shorthands))
-              (eval-buffer buffer nil
-			   ;; This is compatible with what `load' does.
-                           (if dump-mode file fullname)
-			   nil t)))
+              (if eval-function
+                  (funcall eval-function buffer
+                           (if dump-mode file fullname))
+                (eval-buffer buffer nil
+			     ;; This is compatible with what `load' does.
+                             (if dump-mode file fullname)
+			     nil t))))
 	(let (kill-buffer-hook kill-buffer-query-functions)
 	  (kill-buffer buffer)))
       (do-after-load-evaluation fullname)
@@ -890,6 +902,7 @@ non-nil.
 VALUE non-nil means Emacs prefers UTF-8 on code detection for
 non-ASCII files.  This attribute is meaningful only when
 `:coding-type' is `undecided'."
+  (declare (indent defun))
   (let* ((common-attrs (mapcar 'list
 			       '(:mnemonic
 				 :coding-type
@@ -2320,6 +2333,7 @@ This function sets properties `translation-table' and
 `translation-table-id' of SYMBOL to the created table itself and the
 identification number of the table respectively.  It also registers
 the table in `translation-table-vector'."
+  (declare (indent defun))
   (let ((table (if (and (char-table-p (car args))
 			(eq (char-table-subtype (car args))
 			    'translation-table))
@@ -2394,6 +2408,7 @@ Value is what BODY returns."
 Analogous to `define-translation-table', but updates
 `translation-hash-table-vector' and the table is for use in the CCL
 `lookup-integer' and `lookup-character' functions."
+  (declare (indent defun))
   (unless (and (symbolp symbol)
 	       (hash-table-p table))
     (error "Bad args to define-translation-hash-table"))

@@ -684,8 +684,8 @@ subsequently called."
                                   (function :tag "Action")
                                   (function :tag "Revert")))
   :set #'so-long--action-alist-setter
+  :risky t
   :package-version '(so-long . "1.0"))
-(put 'so-long-action-alist 'risky-local-variable t)
 
 (defcustom so-long-action 'so-long-mode
   "The action taken by `so-long' when long lines are detected.
@@ -1518,14 +1518,14 @@ The variables are set in accordance with what was remembered in `so-long'."
       (kill-local-variable variable))))
 
 (defun so-long-mode-maintain-preserved-variables ()
-  "Set any 'preserved' variables.
+  "Set any \"preserved\" variables.
 
 The variables are set in accordance with what was remembered in `so-long'."
   (dolist (var (so-long-original 'so-long-mode-preserved-variables))
     (so-long-restore-variable var)))
 
 (defun so-long-mode-maintain-preserved-minor-modes ()
-  "Enable or disable 'preserved' minor modes.
+  "Enable or disable \"preserved\" minor modes.
 
 The modes are set in accordance with what was remembered in `so-long'."
   (dolist (mode (so-long-original 'so-long-mode-preserved-minor-modes))

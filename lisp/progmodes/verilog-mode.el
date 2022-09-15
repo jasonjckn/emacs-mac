@@ -9,7 +9,7 @@
 ;; Keywords: languages
 ;; The "Version" is the date followed by the decimal rendition of the Git
 ;;     commit hex.
-;; Version: 2021.09.23.089128420
+;; Version: 2021.10.14.127365406
 
 ;; Yoni Rabkin <yoni@rabkins.net> contacted the maintainer of this
 ;; file on 19/3/2008, and the maintainer agreed that when a bug is
@@ -124,7 +124,7 @@
 ;;
 
 ;; This variable will always hold the version number of the mode
-(defconst verilog-mode-version "2021-09-23-54ffde4-vpo-GNU"
+(defconst verilog-mode-version "2021-10-14-797711e-vpo-GNU"
   "Version of this Verilog mode.")
 (defconst verilog-mode-release-emacs t
   "If non-nil, this version of Verilog mode was released with Emacs itself.")
@@ -1264,7 +1264,9 @@ See `verilog-auto-inst-param-value'."
 Also affects AUTOINSTPARAM.  Declaration order is the default for
 backward compatibility, and as some teams prefer signals that are
 declared together to remain together.  Sorted order reduces
-changes when declarations are moved around in a file.
+changes when declarations are moved around in a file. Sorting is
+within input/output/inout groupings, there is intentionally no
+option to intermix between input/output/inouts.
 
 See also `verilog-auto-arg-sort'."
   :version "24.1"  ; rev688
@@ -1822,7 +1824,7 @@ If set will become buffer local.")
 ;;
 
 (defsubst verilog-within-string ()
-  (nth 3 (parse-partial-sexp (point-at-bol) (point))))
+  (nth 3 (parse-partial-sexp (line-beginning-position) (point))))
 
 (defsubst verilog-string-match-fold (regexp string &optional start)
   "Like `string-match', but use `verilog-case-fold'.
@@ -1925,7 +1927,7 @@ This speeds up complicated regexp matches."
 		(search-forward substr bound noerror))
       (save-excursion
 	(beginning-of-line)
-	(setq done (re-search-forward regexp (point-at-eol) noerror)))
+        (setq done (re-search-forward regexp (line-end-position) noerror)))
       (unless (and (<= (match-beginning 0) (point))
 		   (>= (match-end 0) (point)))
 	(setq done nil)))
@@ -1945,7 +1947,7 @@ This speeds up complicated regexp matches."
 		(search-backward substr bound noerror))
       (save-excursion
 	(end-of-line)
-	(setq done (re-search-backward regexp (point-at-bol) noerror)))
+        (setq done (re-search-backward regexp (line-beginning-position) noerror)))
       (unless (and (<= (match-beginning 0) (point))
 		   (>= (match-end 0) (point)))
 	(setq done nil)))
@@ -3620,10 +3622,10 @@ is 0.
 Meaning of *single* declaration:
    E.g. In a module's port-list -
            module test(input clk, rst, x, output [1:0] y);
-   Here 'input clk, rst, x' is 1 *single* declaration statement,
-and 'output [1:0] y' is the other single declaration.  In the 1st single
-declaration, POINT is moved to start of 'clk'.  And in the 2nd declaration,
-POINT is moved to 'y'."
+   Here `input clk, rst, x' is 1 *single* declaration statement,
+and `output [1:0] y' is the other single declaration.  In the 1st single
+declaration, POINT is moved to start of `clk'.  And in the 2nd declaration,
+POINT is moved to `y'."
 
 
   (let (maxpoint old-point)
@@ -4906,7 +4908,7 @@ primitive or interface named NAME."
        (or  kill-existing-comment
 	    (not (save-excursion
 		   (end-of-line)
-		   (search-backward "//" (point-at-bol) t)))))
+                   (search-backward "//" (line-beginning-position) t)))))
       (let ((nest 1) b e
 	    m
 	    (else (if (match-end 2) "!" " ")))
@@ -4959,7 +4961,7 @@ primitive or interface named NAME."
 	   (or kill-existing-comment
 	       (not (save-excursion
 		      (end-of-line)
-		      (search-backward "//" (point-at-bol) t)))))
+                      (search-backward "//" (line-beginning-position) t)))))
       (let ((type (car indent-str)))
 	(unless (eq type 'declaration)
           (unless (looking-at (concat "\\(" verilog-end-block-ordered-re "\\)[ \t]*:"))  ; ignore named ends
@@ -5456,9 +5458,11 @@ For example:
 becomes:
         // surefire lint_line_off UDDONX"
   (interactive)
-  (let ((buff (if (boundp 'next-error-last-buffer)
+  (let ((buff (if (boundp 'next-error-last-buffer) ;Added to Emacs-22.1
                   next-error-last-buffer
-                compilation-last-buffer)))
+                (verilog--suppressed-warnings
+                    ((obsolete compilation-last-buffer))
+                  compilation-last-buffer))))
     (when (buffer-live-p buff)
       (save-excursion
         (switch-to-buffer buff)
@@ -5478,8 +5482,11 @@ becomes:
                     (let* ((pop-up-windows t))
                       (let ((name (expand-file-name
                                    (read-file-name
-                                    (format "Find this error in: (default %s) "
-                                            file)
+                                    ;; `format-prompt' is new in Emacs 28.1.
+                                    (if (fboundp 'format-prompt)
+                                        (format-prompt "Find this error in" file)
+                                      (format "Find this error in (default %s): "
+                                              file))
                                     nil ;; dir
                                     file t))))
                         (setq buffer
@@ -5496,7 +5503,7 @@ becomes:
                 (cond
                  ((looking-at "// surefire lint_off_line ")
                   (goto-char (match-end 0))
-                  (let ((lim (point-at-eol)))
+                  (let ((lim (line-end-position)))
                     (if (re-search-forward code lim 'move)
                         (throw 'already t)
                       (insert (concat " " code)))))
@@ -6598,7 +6605,8 @@ Also move point to constraint."
                        (equal (char-before) ?\;)
                        (equal (char-before) ?\}))
                    ;; skip what looks like bus repetition operator {#{
-                   (not (string-match "^{\\s-*[\\(\\)0-9a-zA-Z_]*\\s-*{" (buffer-substring p (point)))))))))
+                   (not (string-match "^{\\s-*[()0-9a-zA-Z_\\]*\\s-*{"
+                                      (buffer-substring p (point)))))))))
       (progn
         (let ( (pt (point)) (pass 0))
           (verilog-backward-ws&directives)
@@ -7863,14 +7871,14 @@ If search fails, other files are checked based on
   (let* ((default (verilog-get-default-symbol))
 	 ;; The following variable is used in verilog-comp-function
 	 (verilog-buffer-to-use (current-buffer))
-	 (label (if (not (string= default ""))
-		    ;; Do completion with default
-		    (completing-read (concat "Goto-Label: (default "
-					     default ") ")
-                                    #'verilog-comp-defun nil nil "")
-		  ;; There is no default value. Complete without it
-		  (completing-read "Goto-Label: "
-                                  #'verilog-comp-defun nil nil "")))
+         (label
+          (completing-read (cond ((fboundp 'format-prompt)
+                                  ;; `format-prompt' is new in Emacs 28.1.
+                                  (format-prompt "Goto-Label" default))
+                                 ((not (string= default ""))
+                                  (concat "Goto-Label (default " default "): "))
+                                 (t "Goto-Label: "))
+                           #'verilog-comp-defun nil nil ""))
 	 pt)
     ;; Make sure library paths are correct, in case need to resolve module
     (verilog-auto-reeval-locals)
@@ -9950,7 +9958,7 @@ Use DEFAULT-DIR to anchor paths if non-nil."
 	       (verilog-point-text) filename))
       (goto-char (point-min))
       (while (not (eobp))
-	(setq line (buffer-substring (point) (point-at-eol)))
+        (setq line (buffer-substring (point) (line-end-position)))
 	(forward-line 1)
 	(when (string-match "//" line)
 	  (setq line (substring line 0 (match-beginning 0))))
@@ -10872,10 +10880,10 @@ This repairs those mis-inserted by an AUTOARG."
             (setq out (replace-match
                        (concat (match-string 1 out)
                                (if (equal (match-string 3 out) ">>")
-                                   (int-to-string (lsh (string-to-number (match-string 2 out))
+                                   (int-to-string (ash (string-to-number (match-string 2 out))
                                                        (* -1 (string-to-number (match-string 4 out))))))
                                (if (equal (match-string 3 out) "<<")
-                                   (int-to-string (lsh (string-to-number (match-string 2 out))
+                                   (int-to-string (ash (string-to-number (match-string 2 out))
                                                        (string-to-number (match-string 4 out)))))
                                (if (equal (match-string 3 out) ">>>")
                                    (int-to-string (ash (string-to-number (match-string 2 out))
@@ -14750,7 +14758,7 @@ Clicking on the middle-mouse button loads them in a buffer (as in dired)."
 	 (verilog-save-scan-cache
 	  (let (end-point)
 	    (goto-char end)
-	    (setq end-point (point-at-eol))
+            (setq end-point (line-end-position))
 	    (goto-char beg)
 	    (beginning-of-line)  ; scan entire line
 	    ;; delete overlays existing on this line

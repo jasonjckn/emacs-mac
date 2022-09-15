@@ -155,8 +155,9 @@ enum font_property_index
     /* In a font-spec, the value is an alist of extra information of a
        font such as name, OpenType features, and language coverage.
        In addition, in a font-entity, the value may contain a pair
-       (font-entity . INFO) where INFO is extra information to identify
-       a font (font-driver dependent).  */
+       (font-entity . INFO) where INFO is extra information to
+       identify a font (font-driver dependent).  In a font-entity,
+       this holds font driver-specific information.  */
     FONT_EXTRA_INDEX,		/* alist		alist */
 
     /* This value is the length of font-spec vector.  */
@@ -972,7 +973,7 @@ extern struct font_driver const nsfont_driver;
 extern void syms_of_nsfont (void);
 extern void syms_of_macfont (void);
 #endif	/* HAVE_NS */
-#ifdef USE_CAIRO
+#if defined (USE_CAIRO) || defined (USE_BE_CAIRO)
 extern struct font_driver const ftcrfont_driver;
 #ifdef HAVE_HARFBUZZ
 extern struct font_driver ftcrhbfont_driver;
@@ -1006,7 +1007,7 @@ extern void font_deferred_log (const char *, Lisp_Object, Lisp_Object);
 INLINE bool
 font_data_structures_may_be_ill_formed (void)
 {
-#ifdef USE_CAIRO
+#if defined USE_CAIRO || defined USE_BE_CAIRO
   /* Although this works around Bug#20890, it is probably not the
      right thing to do.  */
   return gc_in_progress;

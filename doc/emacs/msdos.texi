@@ -986,9 +986,9 @@ printer, put this in your @file{.emacs} file:
 @section Specifying Fonts on MS-Windows
 @cindex font specification (MS Windows)
 
-  Starting with Emacs 23, fonts are specified by their name, size
-and optional properties.  The format for specifying fonts comes from the
-fontconfig library used in modern Free desktops:
+  Fonts are specified by their name, size and optional properties.
+The format for specifying fonts comes from the fontconfig library used
+in modern Free desktops:
 
 @example
   [Family[-PointSize]][:Option1=Value1[:Option2=Value2[...]]]
@@ -1180,6 +1180,14 @@ non-@code{nil} value causes a frame to grab focus when it is raised.
 The default is @code{t}, which fits well with the Windows default
 click-to-focus policy.
 @end ifnottex
+
+  On Windows 10 (version 1809 and higher) and Windows 11, Emacs title
+bars and scroll bars will follow the system's Light or Dark mode,
+similar to other programs such as Explorer and Command Prompt.  To
+change the color mode, select @code{Personalization} from
+@w{@code{Windows Settings}}, then
+@w{@code{Colors->Choose your color}} (or @w{@code{Choose your default
+app mode}}); then restart Emacs.
 
 @ifnottex
 @include msdos-xtra.texi
