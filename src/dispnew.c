@@ -3821,7 +3821,7 @@ update_window (struct window *w, bool force_p)
           set_window_cursor_after_update (w);
 
 #if 0 /* Check that current matrix invariants are satisfied.  This \
-         is for debugging only.  See the comment of                           \
+         is for debugging only.  See the comment of                \
          check_matrix_invariants.  */
 	  IF_DEBUG (check_matrix_invariants (w));
 #endif
@@ -6887,10 +6887,11 @@ See `buffer-display-table' for more information.  */);
      input at the beginning of the next redisplay).  */
   redisplay_dont_pause = true;
 
-  DEFVAR_LISP (
-    "x-show-tooltip-timeout", Vx_show_tooltip_timeout, doc
-    : /* The default timeout (in seconds) for `x-show-tip'.  */);
-  Vx_show_tooltip_timeout = make_fixnum (5);
+  // JTODO
+  //  DEFVAR_LISP (
+  //    "x-show-tooltip-timeout", Vx_show_tooltip_timeout, doc
+  //    : /* The default timeout (in seconds) for `x-show-tip'.  */);
+  //  Vx_show_tooltip_timeout = make_fixnum (5);
 
   DEFVAR_LISP ("tab-bar-position", Vtab_bar_position,
 	       doc: /* Specify on which side from the tool bar the tab bar shall be.
